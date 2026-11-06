@@ -11,7 +11,7 @@ import {
   CUTTING_MIN_GROWTH,
   MAX_PLANTS,
   MIST_GROWTH,
-  REST_MOSS_FULL_MS,
+  OFFLINE_REST_CAP_MS,
   currentHarmony,
   restLevel,
 } from '../lib/state';
@@ -92,7 +92,9 @@ export function GardenPanel({ state, now, actions, selectedPlantId, onSelectPlan
             ? 'this patch only grows while the jar is alone. leave it for a while.'
             : mossLevel >= 1
               ? 'the moss has reached its full width. it keeps the jar company.'
-              : `${quietLabel(state.restMs)} · it fills over ${REST_MOSS_FULL_MS / 3_600_000} hours away.`}
+              : `${quietLabel(state.restMs)} · each quiet stretch adds up to ${
+                  OFFLINE_REST_CAP_MS / 3_600_000
+                } hours; it fades while you are here.`}
         </p>
       </section>
 
@@ -144,7 +146,7 @@ export function GardenPanel({ state, now, actions, selectedPlantId, onSelectPlan
         )}
 
         {selectedPlant && selectedTraits && selectedDef ? (
-          <article className="herbarium-card">
+          <article className="herbarium-card" data-selected-card="plant">
             <div className="herbarium-top">
               <div className="herbarium-thumb">
                 <PlantThumb

@@ -13,6 +13,7 @@ export type DrawerTab = 'today' | 'garden' | 'settings';
 interface Props {
   state: TerrariumState;
   now: number;
+  awake: boolean;
   actions: TerrariumActions;
   tab: DrawerTab;
   onTab: (tab: DrawerTab) => void;
@@ -32,6 +33,7 @@ const TABS: { id: DrawerTab; label: string; icon: typeof ListTodo }[] = [
 export function Drawer({
   state,
   now,
+  awake,
   actions,
   tab,
   onTab,
@@ -47,6 +49,12 @@ export function Drawer({
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 });
   }, [tab]);
+
+  useEffect(() => {
+    if (!selectedPlantId && !selectedStarId) return;
+    const card = bodyRef.current?.querySelector<HTMLElement>('[data-selected-card]');
+    card?.scrollIntoView({ block: 'nearest' });
+  }, [selectedPlantId, selectedStarId, tab]);
 
   return (
     <aside className="drawer" aria-label="Mosslight field notes" data-shelf-interactive>
@@ -107,6 +115,7 @@ export function Drawer({
           <TodayPanel
             state={state}
             now={now}
+            awake={awake}
             actions={actions}
             selectedStarId={selectedStarId}
             onSelectStar={onSelectStar}

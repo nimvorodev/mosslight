@@ -8,7 +8,7 @@ import {
   harmony,
   isSpeciesUnlocked,
 } from './species';
-import { makeStar } from './constellations';
+import { STAR_FUTURE_GRACE_MS, makeStar } from './constellations';
 import type {
   Creature,
   CreatureId,
@@ -265,10 +265,24 @@ function sanitizeTasks(input: unknown): Task[] {
   return tasks.slice(-MAX_TASKS);
 }
 
-/** Keep the sky recent and finite; old stars are allowed to fade. */
+/** Keep the sky recent, unique and finite; old stars are allowed to fade. */
 export function pruneStars(stars: TaskStar[], now = Date.now()): TaskStar[] {
-  return stars
-    .filter((star) => Number.isFinite(star.at) && now - star.at <= STAR_RETENTION_MS)
+  const ordered = stars
+    .filter(
+      (star) =>
+        Number.isFinite(star.at) &&
+        star.at <= now + STAR_FUTURE_GRACE_MS &&
+        now - star.at <= STAR_RETENTION_MS,
+    )
+    .map((star) => (star.at > now ? { ...star, at: now } : star))
+    .sort((a, b) => a.at - b.at);
+
+  // A task can only ever leave one light behind, even if an old save or a
+  // clock change produced a duplicate. The newest copy wins.
+  const byTask = new Map<string, TaskStar>();
+  for (const star of ordered) byTask.set(star.taskId, star);
+
+  return Array.from(byTask.values())
     .sort((a, b) => a.at - b.at)
     .slice(-MAX_STARS);
 }
@@ -282,7 +296,8 @@ function sanitizeStars(input: unknown, now: number): TaskStar[] {
     const raw = item as Partial<TaskStar>;
     const text = typeof raw.text === 'string' ? raw.text.trim().slice(0, 140) : '';
     if (!text) continue;
-    const taskId = typeof raw.taskId === 'string' ? raw.taskId : makeId('tk');
+    const taskId =
+      typeof raw.taskId === 'string' && raw.taskId.trim() ? raw.taskId : makeId('tk');
     let id = typeof raw.id === 'string' ? raw.id : `st_${taskId}`;
     if (!id || usedIds.has(id)) id = makeId('st');
     usedIds.add(id);

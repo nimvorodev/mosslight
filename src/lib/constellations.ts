@@ -1,5 +1,8 @@
 import type { TaskStar } from './types';
 
+/** How far ahead of the clock a star may be before it is treated as bad data. */
+export const STAR_FUTURE_GRACE_MS = 60_000;
+
 export interface SkyRect {
   x: number;
   y: number;
@@ -84,7 +87,13 @@ export function constellationPairs(stars: TaskStar[]): Array<[number, number]> {
   return pairs;
 }
 
-/** Stars fade out after a month and a half of nights. */
+/**
+ * Stars fade out after a month and a half of nights. A minute of future grace
+ * keeps a star from blinking out if the system clock is nudged backwards.
+ */
 export function visibleStars(stars: TaskStar[], now: number, retentionMs: number): TaskStar[] {
-  return stars.filter((star) => now - star.at >= 0 && now - star.at <= retentionMs);
+  return stars.filter((star) => {
+    const age = now - star.at;
+    return age >= -STAR_FUTURE_GRACE_MS && age <= retentionMs;
+  });
 }

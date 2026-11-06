@@ -1,3 +1,4 @@
+import { visibleStars } from './constellations';
 import { hash2 } from './pixel';
 import type { TerrariumState } from './types';
 
@@ -95,6 +96,15 @@ export function weatherFor(
       detail: 'a focus session is keeping the light low',
     };
   }
+  // Being away is its own weather. An active focus session above is the one
+  // deliberate exception: the dusk should stay low even if you sit still.
+  if (!awake) {
+    return {
+      kind: 'fog',
+      label: 'quiet fog',
+      detail: 'the jar has been keeping its own company',
+    };
+  }
   if (state.focusMsToday >= 90 * 60_000) {
     return {
       kind: 'golden',
@@ -102,7 +112,7 @@ export function weatherFor(
       detail: 'a long stretch of sunlight has warmed the glass',
     };
   }
-  const recentDone = state.stars.filter((star) => now - star.at < 2 * 60 * 60_000).length;
+  const recentDone = visibleStars(state.stars, now, 2 * 60 * 60_000).length;
   if (recentDone >= 2) {
     return {
       kind: 'rain',
@@ -110,10 +120,7 @@ export function weatherFor(
       detail: 'finished things are watering the moss',
     };
   }
-  if (
-    !awake ||
-    (state.restMs >= 4 * 60 * 60_000 && state.focusMsToday < 5 * 60_000)
-  ) {
+  if (state.restMs >= 4 * 60 * 60_000 && state.focusMsToday < 5 * 60_000) {
     return {
       kind: 'fog',
       label: 'quiet fog',
@@ -134,8 +141,10 @@ export function weatherFor(
 export function rareWeatherFor(now: number): RareWeather {
   const season = seasonAt(now).id;
   if (season === 'summer') return null;
-  const day = Math.floor(now / DAY);
-  const chance = hash2(day, 13, 907);
+  // Use the local day, so a rare visitor does not change halfway through the
+  // evening when UTC rolls over.
+  const localDay = Math.floor(new Date(now).setHours(0, 0, 0, 0) / DAY);
+  const chance = hash2(localDay, 13, 907);
   const threshold = season === 'winter' ? 0.2 : 0.18;
   if (chance >= threshold) return null;
   if (season === 'winter') return 'snow';

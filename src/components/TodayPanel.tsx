@@ -39,6 +39,7 @@ import { PlantThumb } from './PlantThumb';
 interface Props {
   state: TerrariumState;
   now: number;
+  awake: boolean;
   actions: TerrariumActions;
   selectedStarId: string | null;
   onSelectStar: (id: string | null) => void;
@@ -71,7 +72,7 @@ function WeatherIcon({ kind }: { kind: WeatherKind }) {
   return <Sun size={16} />;
 }
 
-export function TodayPanel({ state, now, actions, selectedStarId, onSelectStar }: Props) {
+export function TodayPanel({ state, now, awake, actions, selectedStarId, onSelectStar }: Props) {
   const [draft, setDraft] = useState('');
   const openTasks = state.tasks.filter((task) => !task.done);
   const doneTasks = state.tasks.filter((task) => task.done);
@@ -79,7 +80,7 @@ export function TodayPanel({ state, now, actions, selectedStarId, onSelectStar }
   const sunPercent = Math.min(100, (state.sunMsToday / SUN_CAP_MS) * 100);
   const sunFull = state.sunMsToday >= SUN_CAP_MS;
 
-  const weather = weatherFor(state, now);
+  const weather = weatherFor(state, now, awake);
   const season = seasonAt(now);
   const rare = rareWeatherFor(now);
   const focus = state.focus;
@@ -297,7 +298,7 @@ export function TodayPanel({ state, now, actions, selectedStarId, onSelectStar }
         </div>
 
         {selectedStar ? (
-          <article className="star-note">
+          <article className="star-note" data-selected-card="star">
             <div className="star-note-head">
               <span className="star-mark" aria-hidden="true">
                 ✦

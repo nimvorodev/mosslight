@@ -28,7 +28,7 @@ import {
   type SeasonState,
   type WeatherState,
 } from './atmosphere';
-import { constellationPairs, starPoint } from './constellations';
+import { constellationPairs, starPoint, visibleStars } from './constellations';
 import { REST_MOSS_FULL_MS, STAR_RETENTION_MS } from './state';
 import { drawPlant } from './plants';
 import { drawCreature } from './creatures';
@@ -1017,7 +1017,7 @@ function drawWorld(
   const season = seasonAt(now);
   const weather = weatherFor(state, now, !opts.idle);
   const rare = rareWeatherFor(now);
-  const stars = state.stars.filter((star) => now - star.at <= STAR_RETENTION_MS);
+  const stars = visibleStars(state.stars, now, STAR_RETENTION_MS);
   const sky = drawSky(ctx, x, y, w, h, now, detail, horizon, season, stars);
   drawSoil(ctx, x, y, w, h, detail, horizon);
   ctx.fillStyle = withAlpha(season.mossTint, 0.05);

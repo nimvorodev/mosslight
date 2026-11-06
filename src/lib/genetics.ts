@@ -173,9 +173,16 @@ function colorsFor(species: SpeciesId, variant: number): PlantColors {
   }
 
   if (species === 'succulent') {
+    const succulent: PlantColors = {
+      ...base,
+      dark: P.succulent.dark,
+      mid: P.succulent.mid,
+      light: P.succulent.light,
+      edge: P.succulent.edge,
+    };
     if (variant === 1) {
       return {
-        ...base,
+        ...succulent,
         mid: '#a0818c',
         light: '#c4a9af',
         edge: '#e5d0d2',
@@ -184,20 +191,28 @@ function colorsFor(species: SpeciesId, variant: number): PlantColors {
     }
     if (variant === 2) {
       return {
-        ...base,
+        ...succulent,
         mid: '#6f93a3',
         light: '#a8c5cc',
         edge: '#d3e3e4',
         dark: '#4f6c7a',
       };
     }
-    return base;
+    return succulent;
   }
 
   if (species === 'vine') {
+    const vine: PlantColors = {
+      ...base,
+      stem: P.vine.stem,
+      leaf: P.vine.leaf,
+      light: P.vine.light,
+      dark: P.vine.dark,
+      bloom: P.vine.bloom,
+    };
     if (variant === 1) {
       return {
-        ...base,
+        ...vine,
         stem: '#8b8c4e',
         leaf: '#b6b35f',
         light: '#d8d18a',
@@ -207,7 +222,7 @@ function colorsFor(species: SpeciesId, variant: number): PlantColors {
     }
     if (variant === 2) {
       return {
-        ...base,
+        ...vine,
         stem: '#6d8a78',
         leaf: '#94b39c',
         light: '#c4dbc6',
@@ -215,13 +230,21 @@ function colorsFor(species: SpeciesId, variant: number): PlantColors {
         bloom: '#dcead2',
       };
     }
-    return base;
+    return vine;
   }
 
   if (species === 'crystal') {
+    const crystal: PlantColors = {
+      ...base,
+      dark: P.crystal.dark,
+      mid: P.crystal.mid,
+      light: P.crystal.light,
+      glow: P.crystal.glow,
+      edge: P.crystal.edge,
+    };
     if (variant === 1) {
       return {
-        ...base,
+        ...crystal,
         dark: '#7f4d5f',
         mid: '#b77c8e',
         light: '#ecc7d2',
@@ -231,7 +254,7 @@ function colorsFor(species: SpeciesId, variant: number): PlantColors {
     }
     if (variant === 2) {
       return {
-        ...base,
+        ...crystal,
         dark: '#8a642e',
         mid: '#c69a55',
         light: '#f0d69a',
@@ -239,6 +262,7 @@ function colorsFor(species: SpeciesId, variant: number): PlantColors {
         edge: '#65471f',
       };
     }
+    return crystal;
   }
 
   return base;

@@ -83,7 +83,7 @@ export default function App() {
       document.documentElement.removeEventListener('mouseleave', onLeave);
       void bridge.setPassthrough(false);
     };
-  }, [shelf]);
+  }, [shelf, expanded]);
 
   useEffect(() => {
     return bridge.onCommand((command) => {
@@ -247,6 +247,7 @@ export default function App() {
         <Drawer
           state={state}
           now={now}
+          awake={awake}
           actions={actions}
           tab={tab}
           onTab={setTab}

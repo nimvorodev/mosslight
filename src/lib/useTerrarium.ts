@@ -471,6 +471,8 @@ export function useTerrarium(): {
         return;
       }
       const session = result.state.focus;
+      // A new dusk replaces any leftover afterglow from the previous one.
+      setEffects((currentEffects) => ({ ...currentEffects, focusDoneAt: 0 }));
       pushToast(
         session
           ? `dusk for ${session.minutes}m · the jar will keep it low`

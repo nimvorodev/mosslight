@@ -1,7 +1,8 @@
 import { JAR, PLANT_SLOTS, type PlantSlot } from './layout';
-import { starPoint, type SkyRect } from './constellations';
+import { starPoint, visibleStars, type SkyRect } from './constellations';
 import { spreadShelfSlots } from './scene';
 import { plantHeightUnits } from './plants';
+import { STAR_RETENTION_MS } from './state';
 import type { TaskStar, TerrariumState } from './types';
 
 export interface SceneGeometry {
@@ -73,7 +74,7 @@ export function pickAt(
   x: number,
   y: number,
   night: boolean,
-  _now = Date.now(),
+  now = Date.now(),
 ): PickResult {
   let plantId: string | null = null;
   let bestPlant = Infinity;
@@ -101,7 +102,7 @@ export function pickAt(
 
   let star: TaskStar | null = null;
   let bestStar = Infinity;
-  for (const candidate of state.stars) {
+  for (const candidate of visibleStars(state.stars, now, STAR_RETENTION_MS)) {
     const point = starPoint(candidate, geometry.sky);
     const distance = Math.hypot(point.x - x, point.y - y);
     if (distance < 5 && distance < bestStar) {

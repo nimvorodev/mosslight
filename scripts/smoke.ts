@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import {
   CUTTING_MIN_GROWTH,
+  MAX_PLANTS,
   MIST_COST,
   OFFLINE_REST_CAP_MS,
   REST_MOSS_FULL_MS,
@@ -33,6 +34,7 @@ import {
   tickFocus,
 } from '../src/lib/state';
 import { SPECIES } from '../src/lib/species';
+import { P } from '../src/lib/palette';
 import { ageLabel, traitsFor } from '../src/lib/genetics';
 import { rareWeatherFor, seasonAt, weatherFor } from '../src/lib/atmosphere';
 import { starPoint } from '../src/lib/constellations';
@@ -280,11 +282,19 @@ check('finished tasks become stars in the sky', () => {
 
 check('old stars fade out of the sky', () => {
   const now = NOW;
-  const state = makeInitialState(now);
-  const old = { ...state.stars[0], at: now - STAR_RETENTION_MS - DAY };
+  const old: TaskStar = {
+    id: 'old',
+    taskId: 'old',
+    text: 'long gone',
+    at: now - STAR_RETENTION_MS - DAY,
+    x: 0.4,
+    y: 0.2,
+    size: 1,
+    color: 0,
+  };
   const fresh = pruneStars(
     [
-      { ...old, id: 'old', text: 'long gone' },
+      old,
       {
         id: 'new',
         taskId: 'new',
@@ -300,6 +310,31 @@ check('old stars fade out of the sky', () => {
   );
   assert.equal(fresh.length, 1);
   assert.equal(fresh[0].text, 'still here');
+});
+
+check('stars stay unique per task and ignore far-future clock skew', () => {
+  const now = NOW;
+  const star: TaskStar = {
+    id: 'st_one',
+    taskId: 'tk_one',
+    text: 'the first copy',
+    at: now - 2 * MINUTE,
+    x: 0.4,
+    y: 0.2,
+    size: 1,
+    color: 0,
+  };
+  const duplicate: TaskStar = { ...star, id: 'st_two', text: 'the newest copy', at: now - MINUTE };
+  const future: TaskStar = {
+    ...star,
+    id: 'st_future',
+    taskId: 'tk_future',
+    text: 'from next week',
+    at: now + DAY,
+  };
+  const pruned = pruneStars([star, duplicate, future], now);
+  assert.equal(pruned.length, 1);
+  assert.equal(pruned[0].text, 'the newest copy');
 });
 
 check('rest moss grows only while away and caps at eight hours', () => {
@@ -336,6 +371,10 @@ check('a focus session runs down and completes', () => {
   assert.equal(done.completed, true);
   assert.equal(done.state.focus, null);
   assert.equal(done.state.lastFocusDoneAt, now + 25 * MINUTE);
+
+  const again = startFocus(done.state, 50, now + 26 * MINUTE);
+  assert.equal(again.error, undefined);
+  assert.equal(again.state.focus?.minutes, 50, 'a new dusk can follow a finished one');
 });
 
 check('a cutting round trips through a .moss file and replants', () => {
@@ -367,6 +406,24 @@ check('a cutting round trips through a .moss file and replants', () => {
   assert.ok(child.growth < taken.cutting.growth, 'a cutting starts a little shorter');
 });
 
+check('a cutting cannot be planted into a full jar', () => {
+  const now = NOW;
+  const base = makeInitialState(now);
+  const source = base.plants[0];
+  const plants = Array.from({ length: MAX_PLANTS }, (_, slot) => ({
+    ...source,
+    id: `pl_full_${slot}`,
+    slot,
+    growth: 0.8,
+  }));
+  const full = { ...base, plants };
+  const taken = cuttingFromPlant(plants[0], now);
+  assert.ok(taken.cutting);
+  const result = plantCutting(full, taken.cutting!, now + MINUTE);
+  assert.ok(result.error);
+  assert.equal(result.state.plants.length, MAX_PLANTS);
+});
+
 check('unreadable cuttings are refused', () => {
   assert.ok(parseCutting('not json').error);
   assert.ok(parseCutting(JSON.stringify({ kind: 'something-else', version: 1 })).error);
@@ -391,6 +448,27 @@ check('genetics are stable per seed and name their traits', () => {
   assert.equal(ageLabel(NOW - 3 * DAY, NOW), '3 days old');
 });
 
+check('uncommon genetics keep their own species palette', () => {
+  const succulent = traitsFor('succulent', 0);
+  assert.equal(succulent.variant, 0);
+  assert.equal(succulent.colors.dark, P.succulent.dark);
+  assert.equal(succulent.colors.mid, P.succulent.mid);
+  assert.equal(succulent.colors.light, P.succulent.light);
+  assert.equal(succulent.colors.edge, P.succulent.edge);
+
+  const vine = traitsFor('vine', 0);
+  assert.equal(vine.variant, 0);
+  assert.equal(vine.colors.stem, P.vine.stem);
+  assert.equal(vine.colors.leaf, P.vine.leaf);
+
+  const crystal = traitsFor('crystal', 0);
+  assert.equal(crystal.variant, 0);
+  assert.equal(crystal.colors.dark, P.crystal.dark);
+  assert.equal(crystal.colors.mid, P.crystal.mid);
+  assert.equal(crystal.colors.glow, P.crystal.glow);
+  assert.equal(crystal.colors.edge, P.crystal.edge);
+});
+
 check('weather reads the day without scolding it', () => {
   const now = NOW;
   const base = makeInitialState(now);
@@ -409,6 +487,17 @@ check('weather reads the day without scolding it', () => {
     raining = completeTask(raining, id, now + MINUTE).state;
   }
   assert.equal(weatherFor(raining, now + 2 * MINUTE).kind, 'rain');
+  assert.equal(weatherFor(base, now, false).kind, 'fog', 'idle reads as quiet fog');
+  assert.equal(
+    weatherFor(raining, now + 2 * MINUTE, false).kind,
+    'fog',
+    'idle fog outranks earlier rain',
+  );
+  assert.equal(
+    weatherFor(focused, now, false).kind,
+    'golden',
+    'an explicit focus stays golden while idle',
+  );
 });
 
 check('seasonal drift is stable across the year', () => {
@@ -417,6 +506,14 @@ check('seasonal drift is stable across the year', () => {
   assert.equal(seasonAt(new Date(2023, 6, 15).getTime()).id, 'summer');
   assert.equal(seasonAt(new Date(2023, 9, 15).getTime()).id, 'autumn');
   assert.equal(rareWeatherFor(new Date(2023, 6, 15).getTime()), null, 'summer stays clear');
+
+  const morning = new Date(2023, 9, 15, 0, 30).getTime();
+  const evening = new Date(2023, 9, 15, 23, 30).getTime();
+  assert.equal(
+    rareWeatherFor(morning),
+    rareWeatherFor(evening),
+    'a rare visitor lasts the local day',
+  );
 });
 
 check('plants and stars can be picked from the jar', () => {
@@ -447,6 +544,49 @@ check('plants and stars can be picked from the jar', () => {
 
   const daytime = pickAt(starState, geometry, point.x, point.y, false, NOW);
   assert.equal(daytime.star, null, 'stars are only clickable at night');
+});
+
+check('expired or far-future stars cannot be picked', () => {
+  const state = makeInitialState(NOW);
+  const geometry = sceneGeometry(state, 'jar', 192, 160);
+  const base: TaskStar = {
+    id: 'st_old',
+    taskId: 'tk_old',
+    text: 'long gone',
+    at: NOW - STAR_RETENTION_MS - DAY,
+    x: 0.5,
+    y: 0.2,
+    size: 1,
+    color: 0,
+  };
+  const future: TaskStar = {
+    ...base,
+    id: 'st_future',
+    taskId: 'tk_future',
+    at: NOW + DAY,
+  };
+  for (const star of [base, future]) {
+    const point = starPoint(star, geometry.sky);
+    const picked = pickAt({ ...state, stars: [star] }, geometry, point.x, point.y, true, NOW);
+    assert.equal(picked.star, null);
+  }
+});
+
+check('shelf geometry spreads plants across the drawn sill', () => {
+  const state = makeInitialState(NOW);
+  const geometry = sceneGeometry(state, 'shelf', 800, 250);
+  assert.equal(geometry.h, Math.round(250 * 0.86));
+
+  const used = state.plants.map((plant) => plant.slot).sort((a, b) => a - b);
+  const xs = used.map((slot) => geometry.slots[slot].x);
+  const center = xs.reduce((sum, x) => sum + x, 0) / xs.length;
+  assert.ok(Math.abs(center - 0.5) < 1e-9, 'the bed stays centred');
+
+  const plant = state.plants[0];
+  const slot = geometry.slots[plant.slot];
+  const x = geometry.x + slot.x * geometry.w;
+  const y = geometry.y + (geometry.horizon + slot.y - 0.68) * geometry.h;
+  assert.equal(pickAt(state, geometry, x, y - 3, false, NOW).plantId, plant.id);
 });
 
 console.log('all checks passed');

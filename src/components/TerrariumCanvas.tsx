@@ -59,6 +59,12 @@ export function TerrariumCanvas({
   startleRef.current = onStartle;
 
   useEffect(() => {
+    // A pointer left hovering when the drawer closes (or the scene changes
+    // shape) must not keep the residents reacting to a stale position.
+    pointerRef.current = { ...pointerRef.current, active: false };
+  }, [interactive, variant]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -136,6 +142,9 @@ export function TerrariumCanvas({
 
   const handleClick = (event: ReactMouseEvent) => {
     if (!interactiveRef.current) return;
+    // The browser fires a click for each half of a double-click. Only the
+    // first one should toggle a selection; the second is the startle gesture.
+    if (event.detail > 1) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const point = toArt(event);

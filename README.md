@@ -56,7 +56,8 @@ These are quiet additions, not a checklist. Nothing here needs tending.
 - **Herbarium cards.** Click any plant in the jar or in the garden list. The card
   shows its species, age, growth, traits and lineage.
 - **Rest moss.** A patch on the right side of the jar only widens while you are
-  away, and slowly recedes while you are there. It fills over a day.
+  away, and slowly recedes while you are there. Each quiet stretch adds up to
+  eight hours, and it takes a full day of quiet to reach its widest.
 - **Weather that reads the day.** Clear moss after a calm day, soft rain after
   finished tasks, quiet fog when you have been away, and a golden dusk while a
   focus session is running. Rare snow, leaves or petals drift through by season.
