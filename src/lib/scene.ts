@@ -805,6 +805,7 @@ export function drawJar(
   drawWorld(ctx, state, now, inner.x, inner.y, inner.w, inner.h, 1, opts, 0.68, {
     plantScale: 1.2,
     creatureScale: 1.5,
+    soilShade: 'rgba(7, 20, 14, 0.07)',
   });
   drawGlass(ctx, inner.x, inner.y, inner.w, inner.h, 26, 4, 1);
   ctx.restore();
@@ -883,9 +884,9 @@ function drawShelfDetails(
   now: number,
   opts: SceneOptions,
 ): void {
-  const s = Math.max(2, Math.round(detail * 1.35));
+  const s = Math.max(2, Math.round(detail * 1.4));
   const sway = opts.motion ? Math.sin(now * 0.0011) : 0;
-  const count = Math.max(28, Math.round(w / 28));
+  const count = Math.max(36, Math.round(w / 18));
 
   for (let index = 0; index < count; index += 1) {
     const dx = Math.round(x + hash2(index, 2, 131) * w);
@@ -893,77 +894,106 @@ function drawShelfDetails(
     const dy = Math.round(y + h * (horizon + 0.014 + depth * 0.16));
     const kind = hash2(index, 11, 131);
     const drift = Math.round(sway * (1 + depth * 2));
+    const shadowW = (2 + Math.round(hash2(index, 17, 131) * 3)) * s;
+    rect(
+      ctx,
+      dx - Math.round(shadowW / 2),
+      dy,
+      shadowW,
+      1,
+      'rgba(8, 24, 16, 0.32)',
+    );
 
-    if (kind < 0.32) {
+    if (kind < 0.3) {
       // A grass tuft: the missing mid-scale between moss and plants.
       const blades = 3 + Math.floor(hash2(index, 13, 131) * 4);
       for (let blade = 0; blade < blades; blade += 1) {
-        const bx = dx + Math.round((blade - blades / 2) * s * 0.7);
-        const bh = (3 + Math.round(hash2(index, blade + 3, 17) * 5)) * s;
+        const bx = dx + Math.round((blade - blades / 2) * s * 0.8);
+        const bh = (4 + Math.round(hash2(index, blade + 3, 17) * 5)) * s;
         for (let step = 0; step < bh; step += 1) {
+          const color =
+            step >= bh - 1
+              ? P.moss.sun
+              : step < s
+                ? P.moss.deep
+                : step % 3 === 0
+                  ? P.moss.light
+                  : P.moss.dark;
           px(
             ctx,
             bx + Math.round((drift * step) / Math.max(1, bh)),
-            dy - step,
-            step === bh - 1
-              ? P.moss.bright
-              : step % 3 === 0
-                ? P.moss.light
-                : P.moss.dark,
+            dy - 1 - step,
+            color,
           );
         }
       }
-    } else if (kind < 0.48) {
+    } else if (kind < 0.46) {
       // Clover.
-      const leaves = 3 + Math.floor(hash2(index, 3, 139) * 3);
+      const leaves = 4 + Math.floor(hash2(index, 3, 139) * 4);
       for (let leaf = 0; leaf < leaves; leaf += 1) {
-        const lx = dx + Math.round((hash2(index, leaf + 5, 139) - 0.5) * 7 * s);
-        const ly = dy - Math.round(hash2(index, leaf + 9, 139) * 3 * s);
-        px(ctx, lx, ly, P.moss.light);
-        px(ctx, lx + 1, ly, P.moss.bright);
-        px(ctx, lx, ly - 1, P.moss.mid);
+        const lx = dx + Math.round((hash2(index, leaf + 5, 139) - 0.5) * 9 * s);
+        const ly = dy - 1 - Math.round(hash2(index, leaf + 9, 139) * 3 * s);
+        px(ctx, lx, ly, P.moss.bright);
+        px(ctx, lx + 1, ly, P.moss.sun);
+        px(ctx, lx, ly - 1, P.moss.light);
+        if (leaf % 2 === 0) px(ctx, lx - 1, ly, P.moss.dark);
       }
-    } else if (kind < 0.6) {
+    } else if (kind < 0.58) {
       // Pebble.
-      const pw = (1 + Math.round(hash2(index, 4, 149) * 2)) * s;
-      pixelEllipse(ctx, dx, dy, pw, Math.max(1, Math.round(pw * 0.55)), P.soil.pebble);
+      const pw = (2 + Math.round(hash2(index, 4, 149) * 3)) * s;
+      pixelEllipse(ctx, dx, dy - 1, pw, Math.max(1, Math.round(pw * 0.55)), P.soil.pebble);
       px(ctx, dx - Math.round(pw / 2), dy - 1, P.soil.pebbleLight);
-    } else if (kind < 0.76) {
+      px(ctx, dx + Math.round(pw / 2) - 1, dy - 1, P.soil.pebbleLight);
+    } else if (kind < 0.74) {
       // Button mushrooms.
-      const pair = hash2(index, 6, 151) > 0.7 ? 2 : 1;
+      const pair = hash2(index, 6, 151) > 0.75 ? 2 : 1;
       for (let m = 0; m < pair; m += 1) {
-        const mx = dx + m * 4 * s;
-        const mh = (2 + Math.round(hash2(index, m + 2, 151) * 3)) * s;
-        rect(ctx, mx, dy - mh, Math.max(1, s - 1), mh, P.mushroom.stem);
-        const capW = (3 + Math.round(hash2(index, m + 7, 151) * 3)) * s;
-        rect(
-          ctx,
-          mx - Math.floor(capW / 2),
-          dy - mh - s,
-          capW,
-          Math.max(1, s - 1),
-          P.mushroom.cap,
-        );
-        px(ctx, mx, dy - mh - s, P.mushroom.capLight);
+        const mx = dx + m * 5 * s;
+        const mh = (3 + Math.round(hash2(index, m + 2, 151) * 3)) * s;
+        const stemW = Math.max(1, s - 1);
+        rect(ctx, mx, dy - 1 - mh, stemW, mh, P.mushroom.stem);
+        rect(ctx, mx, dy - 2, stemW, 1, P.mushroom.stemShade);
+        const capW = (4 + Math.round(hash2(index, m + 7, 151) * 4)) * s;
+        const capH = Math.max(2, s);
+        for (let row = 0; row < capH; row += 1) {
+          const rowW = Math.max(
+            1,
+            capW - (capH - 1 - row) * Math.max(1, Math.round(s * 0.6)),
+          );
+          rect(
+            ctx,
+            mx - Math.floor(rowW / 2),
+            dy - 1 - mh - capH + row,
+            rowW,
+            1,
+            row === 0 ? P.mushroom.capLight : row === capH - 1 ? P.mushroom.capDark : P.mushroom.cap,
+          );
+        }
       }
     } else if (kind < 0.88) {
       // Tiny flower.
-      const fh = (2 + Math.round(hash2(index, 8, 157) * 3)) * s;
+      const fh = (3 + Math.round(hash2(index, 8, 157) * 3)) * s;
       for (let step = 0; step < fh; step += 1) {
-        px(ctx, dx, dy - step, P.flower.stem);
+        px(ctx, dx, dy - 1 - step, P.flower.leafDark);
       }
-      const petal = Math.max(1, s - 1);
+      const py = dy - 1 - fh;
       const color = hash2(index, 2, 157) > 0.5 ? P.flower.cream : P.flower.pinkLight;
-      px(ctx, dx, dy - fh - petal, color);
-      px(ctx, dx - petal, dy - fh, color);
-      px(ctx, dx + petal, dy - fh, color);
-      px(ctx, dx, dy - fh, P.flower.center);
+      const petal = Math.max(1, s - 1);
+      px(ctx, dx, py, P.flower.center);
+      px(ctx, dx - petal, py, color);
+      px(ctx, dx + petal, py, color);
+      px(ctx, dx, py - petal, color);
+      px(ctx, dx, py + 1, color);
+      if (petal > 1) {
+        px(ctx, dx - 1, py - 1, color);
+        px(ctx, dx + 1, py - 1, color);
+      }
     } else {
       // Fallen twig or leaf.
       const lw = (2 + Math.round(hash2(index, 5, 163) * 3)) * s;
-      pixelLine(ctx, dx - lw, dy, dx + lw, dy - Math.max(1, s - 1), P.wood.mid);
-      px(ctx, dx + lw, dy - Math.max(1, s - 1), P.wood.light);
-      px(ctx, dx - lw, dy, P.wood.dark);
+      pixelLine(ctx, dx - lw, dy - 1, dx + lw, dy - 2 - Math.max(1, s - 1), P.wood.mid);
+      px(ctx, dx + lw, dy - 2 - Math.max(1, s - 1), P.wood.light);
+      px(ctx, dx - lw, dy - 1, P.wood.dark);
     }
   }
 }
@@ -977,27 +1007,31 @@ function drawShelfVines(
   now: number,
   opts: SceneOptions,
 ): void {
-  const count = Math.max(5, Math.round(w / 145));
+  const count = Math.max(6, Math.round(w / 120));
   const sway = opts.motion ? Math.sin(now * 0.0007) * 0.7 : 0;
+  const vineScale = 1.3;
+  const time = opts.motion ? now * 0.00025 : 0;
+  const thick = detail > 1 ? 2 : 1;
+  const leaf = Math.max(1, Math.round(detail * 1.3));
 
   for (let index = 0; index < count; index += 1) {
     const baseX =
-      ((index + 0.4) / count) * w + (hash2(index, 3, 171) - 0.5) * 22 * detail;
+      ((index + 0.4) / count) * w + (hash2(index, 3, 171) - 0.5) * 26 * detail;
     const length = Math.min(
       glassH - 2,
-      Math.round((7 + hash2(index, 7, 171) * 21) * detail),
+      Math.round((7 + hash2(index, 7, 171) * 21) * detail * vineScale),
     );
 
     for (let step = 0; step < length; step += 1) {
       const vx =
         baseX +
-        Math.sin(step * 0.17 + index * 1.7 + now * 0.00025) * 1.6 * detail +
+        Math.sin(step * 0.17 + index * 1.7 + time) * 1.6 * detail * vineScale +
         (sway * step) / Math.max(1, length);
-      px(ctx, Math.round(vx), step, step % 6 === 0 ? P.vine.light : P.vine.stem);
+      rect(ctx, Math.round(vx), step, thick, 1, step % 6 === 0 ? P.vine.light : P.vine.stem);
       if (step > 2 && step % 5 === 0) {
         const side = step % 10 === 0 ? 1 : -1;
-        px(ctx, Math.round(vx) + side * detail, step, P.vine.leaf);
-        px(ctx, Math.round(vx) + side * 2 * detail, step, P.vine.light);
+        px(ctx, Math.round(vx) + side * leaf, step, P.vine.leaf);
+        px(ctx, Math.round(vx) + side * leaf * 2, step, P.vine.light);
       }
     }
   }

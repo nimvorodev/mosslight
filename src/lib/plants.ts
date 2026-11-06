@@ -40,7 +40,8 @@ function plantTopUnits(plant: Plant): number {
     case 'vine':
       return 8 + 48 * g;
     case 'crystal':
-      return 5 + 27 * g;
+      // Tallest shard plus the glow that blooms above it at night.
+      return 7 + 27 * g;
     default:
       return 4;
   }
