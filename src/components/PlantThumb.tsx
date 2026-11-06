@@ -43,6 +43,7 @@ export function PlantThumb({ species, size = 58 }: Props) {
       motion: false,
       night: false,
       detail: 1,
+      maxHeight: size - 5,
     });
   }, [species, size]);
 

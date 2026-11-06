@@ -82,6 +82,85 @@ check('pausing stops growth but still records the visit', () => {
   assert.equal(result.lastSeenAt, now + HOUR);
 });
 
+check('pausing also stops task growth and misting', () => {
+  const now = NOW;
+  const base = makeInitialState(now);
+  const paused = {
+    ...base,
+    dew: 10,
+    settings: { ...base.settings, paused: true },
+  };
+  const before = paused.plants.map((plant) => plant.growth);
+
+  const task = addTask(paused, 'resting task', now).state;
+  const done = completeTask(task, task.tasks[0].id, now + MINUTE);
+  assert.deepEqual(
+    done.state.plants.map((plant) => plant.growth),
+    before,
+    'a finished task must not grow a resting garden',
+  );
+  assert.equal(done.state.dew, paused.dew + TASK_DEW, 'rewards still arrive');
+
+  const misted = mistPlants(paused, now);
+  assert.ok(misted.error, 'misting should be refused while resting');
+  assert.equal(misted.state.dew, paused.dew, 'no dew is spent');
+  assert.deepEqual(
+    misted.state.plants.map((plant) => plant.growth),
+    before,
+    'no growth is applied',
+  );
+});
+
+check('bad settings snap back to safe defaults', () => {
+  const now = NOW;
+  const state = makeInitialState(now);
+  const fixed = normalizeState(
+    {
+      ...state,
+      settings: {
+        display: 'sideways',
+        alwaysOnTop: 'yes',
+        launchAtLogin: 1,
+        paused: 'no',
+        reducedMotion: null,
+        atmosphere: 'on',
+      },
+      seenUnlocks: ['fern', 'fern', 'bogus'],
+    },
+    now,
+  );
+  assert.deepEqual(fixed.settings, {
+    display: 'jar',
+    alwaysOnTop: true,
+    launchAtLogin: false,
+    paused: false,
+    reducedMotion: false,
+    atmosphere: true,
+  });
+  assert.deepEqual(fixed.seenUnlocks, ['fern']);
+});
+
+check('duplicate ids are repaired when loading', () => {
+  const now = NOW;
+  const state = makeInitialState(now);
+  const repaired = normalizeState(
+    {
+      ...state,
+      plants: state.plants.map((plant) => ({ ...plant, id: 'same' })),
+      tasks: [
+        { id: 'dup', text: 'one', done: false, createdAt: now },
+        { id: 'dup', text: 'two', done: false, createdAt: now },
+      ],
+    },
+    now,
+  );
+  assert.equal(
+    new Set(repaired.plants.map((plant) => plant.id)).size,
+    repaired.plants.length,
+  );
+  assert.equal(new Set(repaired.tasks.map((task) => task.id)).size, repaired.tasks.length);
+});
+
 check('finishing a task drops dew, a spore, and starts a streak', () => {
   const now = NOW;
   const state = makeInitialState(now);

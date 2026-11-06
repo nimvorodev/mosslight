@@ -102,23 +102,35 @@ export function useTerrarium(): {
     [],
   );
 
-  const flushSave = useCallback((next: TerrariumState) => {
-    if (!loadedRef.current) return;
-    if (saveTimer.current !== null) {
-      window.clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    void bridge.saveState(JSON.stringify(next));
+  const persist = useCallback((next: TerrariumState) => {
+    void bridge.saveState(JSON.stringify(next)).catch(() => {
+      // A failed write must not break the running garden. The next tick retries.
+    });
   }, []);
 
-  const scheduleSave = useCallback((next: TerrariumState) => {
-    if (!loadedRef.current) return;
-    if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      saveTimer.current = null;
-      void bridge.saveState(JSON.stringify(next));
-    }, 4000);
-  }, []);
+  const flushSave = useCallback(
+    (next: TerrariumState) => {
+      if (!loadedRef.current) return;
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      persist(next);
+    },
+    [persist],
+  );
+
+  const scheduleSave = useCallback(
+    (next: TerrariumState) => {
+      if (!loadedRef.current) return;
+      if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+      saveTimer.current = window.setTimeout(() => {
+        saveTimer.current = null;
+        persist(next);
+      }, 4000);
+    },
+    [persist],
+  );
 
   const commitNext = useCallback(
     (
@@ -159,7 +171,12 @@ export function useTerrarium(): {
 
     async function load() {
       let next: TerrariumState;
-      const raw = await bridge.loadState();
+      let raw: string | null = null;
+      try {
+        raw = await bridge.loadState();
+      } catch {
+        pushToast('the saved jar could not be opened; a fresh one is growing', 'warn', 6000);
+      }
       if (raw) {
         try {
           next = normalizeState(JSON.parse(raw), Date.now());
@@ -256,7 +273,7 @@ export function useTerrarium(): {
         window.clearTimeout(saveTimer.current);
         saveTimer.current = null;
       }
-      void bridge.saveState(JSON.stringify(stateRef.current));
+      persist(stateRef.current);
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') save();
@@ -267,7 +284,7 @@ export function useTerrarium(): {
       window.removeEventListener('pagehide', save);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [persist]);
 
   const updateSettings = useCallback(
     (patch: Partial<Settings>) => {
@@ -398,9 +415,9 @@ export function useTerrarium(): {
       saveTimer.current = null;
     }
     if (stateRef.current && loadedRef.current) {
-      void bridge.saveState(JSON.stringify(stateRef.current));
+      persist(stateRef.current);
     }
-  }, []);
+  }, [persist]);
 
   return {
     state,

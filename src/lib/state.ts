@@ -147,19 +147,40 @@ function isCreature(value: unknown): value is CreatureId {
   return typeof value === 'string' && value in CREATURES;
 }
 
+function boolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+/** Saved settings can outlive a version of the app, so never trust their shape. */
+function sanitizeSettings(input: unknown): Settings {
+  const raw = input && typeof input === 'object' ? (input as Partial<Settings>) : {};
+  return {
+    display: raw.display === 'shelf' ? 'shelf' : 'jar',
+    alwaysOnTop: boolean(raw.alwaysOnTop, DEFAULT_SETTINGS.alwaysOnTop),
+    launchAtLogin: boolean(raw.launchAtLogin, DEFAULT_SETTINGS.launchAtLogin),
+    paused: boolean(raw.paused, DEFAULT_SETTINGS.paused),
+    reducedMotion: boolean(raw.reducedMotion, DEFAULT_SETTINGS.reducedMotion),
+    atmosphere: boolean(raw.atmosphere, DEFAULT_SETTINGS.atmosphere),
+  };
+}
+
 function sanitizePlants(input: unknown): Plant[] {
   if (!Array.isArray(input)) return [];
-  const used = new Set<number>();
+  const usedSlots = new Set<number>();
+  const usedIds = new Set<string>();
   const plants: Plant[] = [];
   for (const item of input) {
     if (!item || typeof item !== 'object') continue;
     const raw = item as Partial<Plant>;
     if (!isSpecies(raw.species)) continue;
     const slot = Math.round(finite(raw.slot, -1));
-    if (slot < 0 || slot >= PLANT_SLOTS.length || used.has(slot)) continue;
-    used.add(slot);
+    if (slot < 0 || slot >= PLANT_SLOTS.length || usedSlots.has(slot)) continue;
+    usedSlots.add(slot);
+    let id = typeof raw.id === 'string' ? raw.id : makeId('pl');
+    if (!id || usedIds.has(id)) id = makeId('pl');
+    usedIds.add(id);
     plants.push({
-      id: typeof raw.id === 'string' ? raw.id : makeId('pl'),
+      id,
       species: raw.species,
       slot,
       growth: clamp(finite(raw.growth, 0.1), 0, 1),
@@ -192,13 +213,17 @@ function sanitizeCreatures(input: unknown): Creature[] {
 function sanitizeTasks(input: unknown): Task[] {
   if (!Array.isArray(input)) return [];
   const tasks: Task[] = [];
+  const usedIds = new Set<string>();
   for (const item of input) {
     if (!item || typeof item !== 'object') continue;
     const raw = item as Partial<Task>;
     const text = typeof raw.text === 'string' ? raw.text.trim().slice(0, 140) : '';
     if (!text) continue;
+    let id = typeof raw.id === 'string' ? raw.id : makeId('tk');
+    if (!id || usedIds.has(id)) id = makeId('tk');
+    usedIds.add(id);
     tasks.push({
-      id: typeof raw.id === 'string' ? raw.id : makeId('tk'),
+      id,
       text,
       done: Boolean(raw.done),
       createdAt: finite(raw.createdAt, Date.now()),
@@ -213,11 +238,7 @@ export function normalizeState(input: unknown, now = Date.now()): TerrariumState
   const raw = input as Partial<TerrariumState>;
   if (raw.version !== 1) return makeInitialState(now);
 
-  const settings: Settings = {
-    ...DEFAULT_SETTINGS,
-    ...(raw.settings && typeof raw.settings === 'object' ? raw.settings : {}),
-  };
-  settings.display = settings.display === 'shelf' ? 'shelf' : 'jar';
+  const settings = sanitizeSettings(raw.settings);
 
   const state: TerrariumState = {
     version: 1,
@@ -241,7 +262,7 @@ export function normalizeState(input: unknown, now = Date.now()): TerrariumState
     lastBreakAt: Math.max(0, finite(raw.lastBreakAt, 0)),
     onboardingDone: Boolean(raw.onboardingDone),
     seenUnlocks: Array.isArray(raw.seenUnlocks)
-      ? raw.seenUnlocks.filter(isSpecies)
+      ? Array.from(new Set(raw.seenUnlocks.filter(isSpecies)))
       : ['fern', 'mushroom'],
     settings,
   };
@@ -340,11 +361,13 @@ export function completeTask(
     streak,
     bestStreak: Math.max(state.bestStreak, streak),
     lastTaskDay: today,
-    plants: state.plants.map((plant) =>
-      plant.growth < 1
-        ? { ...plant, growth: clamp(plant.growth + TASK_GROWTH, 0, 1) }
-        : plant,
-    ),
+    plants: state.settings.paused
+      ? state.plants
+      : state.plants.map((plant) =>
+          plant.growth < 1
+            ? { ...plant, growth: clamp(plant.growth + TASK_GROWTH, 0, 1) }
+            : plant,
+        ),
     updatedAt: now,
   };
   return { state: next, completed: true, newStreak };
@@ -388,6 +411,7 @@ export function mistPlants(
   state: TerrariumState,
   now = Date.now(),
 ): { state: TerrariumState; error?: string; matured: SpeciesId[] } {
+  if (state.settings.paused) return { state, error: 'the jar is resting', matured: [] };
   if (state.dew < MIST_COST) return { state, error: 'not enough dew', matured: [] };
   if (state.plants.length === 0) return { state, error: 'nothing to mist yet', matured: [] };
 

@@ -53,6 +53,10 @@ let presenceTimer = null;
 let lastPoll = Date.now();
 let boundsTimer = null;
 let shellSaveTimer = null;
+let shellWriteChain = Promise.resolve();
+let layoutBounds = null;
+let layoutAt = 0;
+let stateWriteChain = Promise.resolve();
 let lastCommand = null;
 
 let shellState = {
@@ -123,10 +127,22 @@ function main() {
 
   app.on('before-quit', () => {
     isQuitting = true;
-    rememberPosition();
     if (presenceTimer) clearInterval(presenceTimer);
-    if (boundsTimer) clearTimeout(boundsTimer);
-    if (shellSaveTimer) clearTimeout(shellSaveTimer);
+    if (boundsTimer) {
+      clearTimeout(boundsTimer);
+      boundsTimer = null;
+    }
+    if (shellSaveTimer) {
+      clearTimeout(shellSaveTimer);
+      shellSaveTimer = null;
+    }
+    rememberPosition();
+    // rememberPosition schedules a debounced write; flush it before we exit.
+    if (shellSaveTimer) {
+      clearTimeout(shellSaveTimer);
+      shellSaveTimer = null;
+    }
+    flushShell();
     globalShortcut.unregisterAll();
     if (tray && !tray.isDestroyed()) tray.destroy();
   });
@@ -260,6 +276,8 @@ function applyLayout() {
   if (!win || win.isDestroyed()) return;
   const home = initialPosition();
   const shape = windowBounds(home, displayMode, expanded);
+  layoutBounds = shape;
+  layoutAt = Date.now();
   win.setBounds(shape, false);
 }
 
@@ -293,6 +311,18 @@ function scheduleRememberPosition() {
 function rememberPosition() {
   if (!win || win.isDestroyed() || displayMode === 'shelf') return;
   const bounds = win.getBounds();
+  // Expanding the drawer near a screen edge can clamp the window, which would
+  // otherwise be mistaken for a drag and slowly walk the remembered home away.
+  const fromLayout =
+    layoutBounds !== null &&
+    Date.now() - layoutAt < 1200 &&
+    bounds.x === layoutBounds.x &&
+    bounds.y === layoutBounds.y &&
+    bounds.width === layoutBounds.width &&
+    bounds.height === layoutBounds.height;
+  layoutBounds = null;
+  if (fromLayout) return;
+
   const homeX = expanded ? bounds.x + bounds.width - JAR_COMPACT_W : bounds.x;
   const homeY = expanded ? bounds.y + bounds.height - JAR_COMPACT_H : bounds.y;
   if (shellState.x === homeX && shellState.y === homeY) return;
@@ -314,10 +344,22 @@ function saveShellSoon() {
   if (shellSaveTimer) clearTimeout(shellSaveTimer);
   shellSaveTimer = setTimeout(() => {
     shellSaveTimer = null;
-    void fsp
-      .writeFile(shellPath, JSON.stringify(shellState, null, 2), 'utf8')
+    const snapshot = JSON.stringify(shellState, null, 2);
+    shellWriteChain = shellWriteChain
+      .catch(() => {})
+      .then(() => fsp.writeFile(shellPath, snapshot, 'utf8'))
       .catch(() => {});
   }, 240);
+}
+
+/** Write the last known window home synchronously so quitting never loses it. */
+function flushShell() {
+  if (!shellPath) return;
+  try {
+    fs.writeFileSync(shellPath, JSON.stringify(shellState, null, 2), 'utf8');
+  } catch {
+    // A remembered position is a convenience; never block quitting over it.
+  }
 }
 
 function createTray() {
@@ -584,14 +626,19 @@ function setupIpc() {
     } catch {
       throw new Error('state is not valid JSON');
     }
-    const temp = `${statePath}.tmp`;
-    await fsp.writeFile(temp, json, 'utf8');
-    try {
-      await fsp.rename(temp, statePath);
-    } catch {
-      await fsp.writeFile(statePath, json, 'utf8');
-      await fsp.rm(temp, { force: true }).catch(() => {});
-    }
+    // Serialize writes so a quick burst of actions cannot interleave inside the
+    // shared .tmp file and land an older snapshot on top of a newer one.
+    stateWriteChain = stateWriteChain.catch(() => {}).then(async () => {
+      const temp = `${statePath}.tmp`;
+      await fsp.writeFile(temp, json, 'utf8');
+      try {
+        await fsp.rename(temp, statePath);
+      } catch {
+        await fsp.writeFile(statePath, json, 'utf8');
+        await fsp.rm(temp, { force: true }).catch(() => {});
+      }
+    });
+    await stateWriteChain;
   });
 
   ipcMain.handle('window:set-expanded', (_event, value) => {
