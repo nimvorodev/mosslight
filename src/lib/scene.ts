@@ -372,7 +372,7 @@ function drawGroundCreatures(
   for (const creature of state.creatures) {
     if (creature.species === 'snail') {
       const phase = t * 0.000045 + creature.seed * 0.001;
-      const nx = 0.22 + 0.32 * (0.5 + 0.5 * Math.sin(phase));
+      const nx = 0.1 + 0.8 * (0.5 + 0.5 * Math.sin(phase));
       const ny = horizon + 0.127 + 0.012 * Math.sin(t * 0.00021 + creature.seed);
       drawCreature(
         ctx,
@@ -386,7 +386,7 @@ function drawGroundCreatures(
       );
     } else if (creature.species === 'ladybug') {
       const phase = t * 0.00013 + creature.seed * 0.01;
-      const nx = 0.36 + 0.38 * (0.5 + 0.5 * Math.sin(phase));
+      const nx = 0.08 + 0.84 * (0.5 + 0.5 * Math.sin(phase));
       drawCreature(
         ctx,
         'ladybug',
@@ -417,7 +417,7 @@ function drawFrog(
   const frog = state.creatures.find((creature) => creature.species === 'frog');
   if (!frog) return;
   const slow = opts.idle ? 0.35 : 1;
-  const nx = 0.845 + 0.018 * Math.sin(now * slow * 0.00003 + frog.seed);
+  const nx = 0.78 + 0.12 * Math.sin(now * slow * 0.00003 + frog.seed);
   drawCreature(
     ctx,
     'frog',
@@ -447,8 +447,8 @@ function drawFireflies(
   if (!firefly) return;
   const slow = opts.idle ? 0.4 : 1;
   const t = now * slow;
-  const nx = 0.26 + 0.5 * (0.5 + 0.5 * Math.sin(t * 0.00007 + firefly.seed * 0.001));
-  const ny = 0.28 + 0.24 * (0.5 + 0.5 * Math.sin(t * 0.00011 + firefly.seed * 0.002));
+  const nx = 0.12 + 0.76 * (0.5 + 0.5 * Math.sin(t * 0.00007 + firefly.seed * 0.001));
+  const ny = 0.24 + 0.3 * (0.5 + 0.5 * Math.sin(t * 0.00011 + firefly.seed * 0.002));
   drawCreature(
     ctx,
     'firefly',
@@ -608,6 +608,24 @@ function drawVignette(
   ctx.fillRect(x, y, w, h);
 }
 
+interface WorldLayout {
+  slots?: PlantSlot[];
+  /** Multiplies the drawn size of plants without moving their roots. */
+  plantScale?: number;
+  /** Multiplies the drawn size of residents. */
+  creatureScale?: number;
+  /** Tints the moss band so silhouettes separate from the bright ground. */
+  soilShade?: string;
+  /** Extra ground cover drawn on the soil, behind the plants. */
+  decor?: (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ) => void;
+}
+
 function drawWorld(
   ctx: CanvasRenderingContext2D,
   state: TerrariumState,
@@ -619,46 +637,57 @@ function drawWorld(
   detail: number,
   opts: SceneOptions,
   horizon: number,
-  slots: PlantSlot[] = PLANT_SLOTS,
+  layout: WorldLayout = {},
 ): void {
+  const slots = layout.slots ?? PLANT_SLOTS;
   const sky = drawSky(ctx, x, y, w, h, now, detail, horizon);
   drawSoil(ctx, x, y, w, h, detail, horizon);
+  if (layout.soilShade) {
+    ctx.fillStyle = layout.soilShade;
+    ctx.fillRect(x, y + h * horizon, w, h * (1 - horizon) + 1);
+  }
   drawStaticDecor(ctx, x, y, w, h, detail, horizon);
+  layout.decor?.(ctx, x, y, w, h);
 
-  const scaleBase = detail;
+  const scaleBase = detail * (layout.plantScale ?? 1);
   const plants = state.plants
     .map((plant) => ({ plant, slot: slots[plant.slot] }))
     .filter((entry) => Boolean(entry.slot))
     .sort((a, b) => a.slot.z - b.slot.z || a.slot.y - b.slot.y);
 
-  for (const { plant, slot } of plants) {
-    if (slot.z >= 2) continue;
+  const drawOne = (plant: TerrariumState['plants'][number], slot: PlantSlot) => {
+    const baseY = Math.round(y + (horizon + slot.y - 0.68) * h);
     drawPlant(
       ctx,
       plant,
       Math.round(x + slot.x * w),
-      Math.round(y + (horizon + slot.y - 0.68) * h),
+      baseY,
       slot.scale * scaleBase,
-      { now, motion: opts.motion, night: sky.night, detail },
+      {
+        now,
+        motion: opts.motion,
+        night: sky.night,
+        detail,
+        maxHeight: Math.max(4, baseY - y - 3),
+      },
     );
+  };
+
+  for (const { plant, slot } of plants) {
+    if (slot.z >= 2) continue;
+    drawOne(plant, slot);
   }
 
-  drawGroundCreatures(ctx, state, now, x, y, w, h, detail, opts, sky, horizon);
+  const creatureDetail = detail * (layout.creatureScale ?? 1);
+  drawGroundCreatures(ctx, state, now, x, y, w, h, creatureDetail, opts, sky, horizon);
 
   for (const { plant, slot } of plants) {
     if (slot.z < 2) continue;
-    drawPlant(
-      ctx,
-      plant,
-      Math.round(x + slot.x * w),
-      Math.round(y + (horizon + slot.y - 0.68) * h),
-      slot.scale * scaleBase,
-      { now, motion: opts.motion, night: sky.night, detail },
-    );
+    drawOne(plant, slot);
   }
 
-  drawFrog(ctx, state, now, x, y, w, h, detail, opts, sky, horizon);
-  drawFireflies(ctx, state, now, x, y, w, h, detail, opts, sky);
+  drawFrog(ctx, state, now, x, y, w, h, creatureDetail, opts, sky, horizon);
+  drawFireflies(ctx, state, now, x, y, w, h, creatureDetail, opts, sky);
 
   if (opts.atmosphere) {
     drawDust(ctx, x, y, w, h, now, detail, sky.light);
@@ -773,7 +802,10 @@ export function drawJar(
   ctx.save();
   jarPath(ctx, inner.x, inner.y, inner.w, inner.h, 26, 4);
   ctx.clip();
-  drawWorld(ctx, state, now, inner.x, inner.y, inner.w, inner.h, 1, opts, 0.68);
+  drawWorld(ctx, state, now, inner.x, inner.y, inner.w, inner.h, 1, opts, 0.68, {
+    plantScale: 1.2,
+    creatureScale: 1.5,
+  });
   drawGlass(ctx, inner.x, inner.y, inner.w, inner.h, 26, 4, 1);
   ctx.restore();
 
@@ -798,20 +830,20 @@ export function drawJar(
  * started in the jar simply moves into the long windowsill.
  */
 export const SHELF_SLOTS: PlantSlot[] = [
-  { x: 0.075, y: 0.742, scale: 0.9, z: 0 },
-  { x: 0.195, y: 0.752, scale: 0.84, z: 0 },
-  { x: 0.325, y: 0.738, scale: 0.93, z: 1 },
-  { x: 0.445, y: 0.756, scale: 0.86, z: 1 },
-  { x: 0.565, y: 0.74, scale: 0.95, z: 1 },
-  { x: 0.685, y: 0.754, scale: 0.85, z: 0 },
-  { x: 0.805, y: 0.738, scale: 0.92, z: 0 },
-  { x: 0.92, y: 0.75, scale: 0.84, z: 0 },
+  { x: 0.075, y: 0.8, scale: 0.9, z: 0 },
+  { x: 0.195, y: 0.81, scale: 0.84, z: 0 },
+  { x: 0.325, y: 0.796, scale: 0.93, z: 1 },
+  { x: 0.445, y: 0.814, scale: 0.86, z: 1 },
+  { x: 0.565, y: 0.798, scale: 0.95, z: 1 },
+  { x: 0.685, y: 0.812, scale: 0.85, z: 0 },
+  { x: 0.805, y: 0.796, scale: 0.92, z: 0 },
+  { x: 0.925, y: 0.808, scale: 0.84, z: 0 },
 ];
 
 /**
- * A young garden only fills a few jar slots, which all cluster on the left.
- * On the long shelf, spread the occupied slots evenly so the garden always
- * feels like it belongs to the whole windowsill.
+ * A young garden starts as a compact bed in the middle of the shelf. Each new
+ * plant widens the bed outward, so the garden visibly grows along the windowsill
+ * instead of jumping to the far edges on day one.
  */
 function spreadShelfSlots(plants: TerrariumState['plants']): PlantSlot[] {
   const used = plants
@@ -821,14 +853,20 @@ function spreadShelfSlots(plants: TerrariumState['plants']): PlantSlot[] {
         slot >= 0 && slot < SHELF_SLOTS.length && all.indexOf(slot) === index,
     )
     .sort((a, b) => a - b);
-  if (used.length < 2) return SHELF_SLOTS;
+  if (used.length === 0) return SHELF_SLOTS;
 
   const slots = SHELF_SLOTS.map((slot) => ({ ...slot }));
-  const first = SHELF_SLOTS[0].x;
-  const last = SHELF_SLOTS[SHELF_SLOTS.length - 1].x;
+  if (used.length === 1) {
+    slots[used[0]] = { ...slots[used[0]], x: 0.5 };
+    return slots;
+  }
+
+  const half = 0.425 * ((used.length - 1) / (SHELF_SLOTS.length - 1));
+  const left = 0.5 - half;
+  const right = 0.5 + half;
   used.forEach((slotIndex, rank) => {
     const t = rank / (used.length - 1);
-    slots[slotIndex] = { ...slots[slotIndex], x: first + t * (last - first) };
+    slots[slotIndex] = { ...slots[slotIndex], x: left + t * (right - left) };
   });
   return slots;
 }
@@ -845,47 +883,87 @@ function drawShelfDetails(
   now: number,
   opts: SceneOptions,
 ): void {
-  const s = Math.max(1, Math.round(detail));
-  const sway = opts.motion ? Math.round(Math.sin(now * 0.0011)) : 0;
-  const count = Math.max(14, Math.round(w / 34));
+  const s = Math.max(2, Math.round(detail * 1.35));
+  const sway = opts.motion ? Math.sin(now * 0.0011) : 0;
+  const count = Math.max(28, Math.round(w / 28));
 
   for (let index = 0; index < count; index += 1) {
     const dx = Math.round(x + hash2(index, 2, 131) * w);
-    const dy = Math.round(
-      y + h * (horizon + 0.012 + hash2(index, 7, 131) * 0.185),
-    );
+    const depth = hash2(index, 7, 131);
+    const dy = Math.round(y + h * (horizon + 0.014 + depth * 0.16));
     const kind = hash2(index, 11, 131);
+    const drift = Math.round(sway * (1 + depth * 2));
 
-    if (kind < 0.34) {
-      const blades = 2 + Math.floor(hash2(index, 13, 131) * 3);
+    if (kind < 0.32) {
+      // A grass tuft: the missing mid-scale between moss and plants.
+      const blades = 3 + Math.floor(hash2(index, 13, 131) * 4);
       for (let blade = 0; blade < blades; blade += 1) {
-        const bx = dx + (blade - blades / 2) * s;
-        const bh = (2 + Math.round(hash2(index, blade + 3, 17) * 4)) * s;
+        const bx = dx + Math.round((blade - blades / 2) * s * 0.7);
+        const bh = (3 + Math.round(hash2(index, blade + 3, 17) * 5)) * s;
         for (let step = 0; step < bh; step += 1) {
           px(
             ctx,
-            bx + Math.round((sway * step) / 7),
+            bx + Math.round((drift * step) / Math.max(1, bh)),
             dy - step,
-            step === bh - 1 ? P.moss.bright : P.moss.dark,
+            step === bh - 1
+              ? P.moss.bright
+              : step % 3 === 0
+                ? P.moss.light
+                : P.moss.dark,
           );
         }
       }
-    } else if (kind < 0.53) {
-      pixelEllipse(ctx, dx, dy, 2 * s, s, P.soil.pebble);
-      px(ctx, dx, dy - s, P.soil.pebbleLight);
-    } else if (kind < 0.66) {
-      rect(ctx, dx, dy - 2 * s, s, 2 * s, P.mushroom.stem);
-      rect(ctx, dx - s, dy - Math.round(2.5 * s), 3 * s, s, P.mushroom.cap);
-      px(ctx, dx, dy - Math.round(2.5 * s), P.mushroom.capLight);
-    } else if (kind < 0.77) {
-      px(ctx, dx, dy - s, P.flower.cream);
-      px(ctx, dx, dy, P.flower.stem);
-    } else if (kind < 0.9) {
-      px(ctx, dx, dy, P.moss.light);
-      px(ctx, dx - s, dy, P.moss.dark);
-      px(ctx, dx + s, dy, P.moss.dark);
+    } else if (kind < 0.48) {
+      // Clover.
+      const leaves = 3 + Math.floor(hash2(index, 3, 139) * 3);
+      for (let leaf = 0; leaf < leaves; leaf += 1) {
+        const lx = dx + Math.round((hash2(index, leaf + 5, 139) - 0.5) * 7 * s);
+        const ly = dy - Math.round(hash2(index, leaf + 9, 139) * 3 * s);
+        px(ctx, lx, ly, P.moss.light);
+        px(ctx, lx + 1, ly, P.moss.bright);
+        px(ctx, lx, ly - 1, P.moss.mid);
+      }
+    } else if (kind < 0.6) {
+      // Pebble.
+      const pw = (1 + Math.round(hash2(index, 4, 149) * 2)) * s;
+      pixelEllipse(ctx, dx, dy, pw, Math.max(1, Math.round(pw * 0.55)), P.soil.pebble);
+      px(ctx, dx - Math.round(pw / 2), dy - 1, P.soil.pebbleLight);
+    } else if (kind < 0.76) {
+      // Button mushrooms.
+      const pair = hash2(index, 6, 151) > 0.7 ? 2 : 1;
+      for (let m = 0; m < pair; m += 1) {
+        const mx = dx + m * 4 * s;
+        const mh = (2 + Math.round(hash2(index, m + 2, 151) * 3)) * s;
+        rect(ctx, mx, dy - mh, Math.max(1, s - 1), mh, P.mushroom.stem);
+        const capW = (3 + Math.round(hash2(index, m + 7, 151) * 3)) * s;
+        rect(
+          ctx,
+          mx - Math.floor(capW / 2),
+          dy - mh - s,
+          capW,
+          Math.max(1, s - 1),
+          P.mushroom.cap,
+        );
+        px(ctx, mx, dy - mh - s, P.mushroom.capLight);
+      }
+    } else if (kind < 0.88) {
+      // Tiny flower.
+      const fh = (2 + Math.round(hash2(index, 8, 157) * 3)) * s;
+      for (let step = 0; step < fh; step += 1) {
+        px(ctx, dx, dy - step, P.flower.stem);
+      }
+      const petal = Math.max(1, s - 1);
+      const color = hash2(index, 2, 157) > 0.5 ? P.flower.cream : P.flower.pinkLight;
+      px(ctx, dx, dy - fh - petal, color);
+      px(ctx, dx - petal, dy - fh, color);
+      px(ctx, dx + petal, dy - fh, color);
+      px(ctx, dx, dy - fh, P.flower.center);
     } else {
-      px(ctx, dx, dy, P.soil.pebble);
+      // Fallen twig or leaf.
+      const lw = (2 + Math.round(hash2(index, 5, 163) * 3)) * s;
+      pixelLine(ctx, dx - lw, dy, dx + lw, dy - Math.max(1, s - 1), P.wood.mid);
+      px(ctx, dx + lw, dy - Math.max(1, s - 1), P.wood.light);
+      px(ctx, dx - lw, dy, P.wood.dark);
     }
   }
 }
@@ -987,13 +1065,29 @@ export function drawShelf(
   const detail = clamp(h / 105, 1, 1.8);
   const radiusTop = Math.round(10 * detail);
   const glassH = Math.round(h * 0.86);
-  const horizon = 0.62;
+  const horizon = 0.66;
 
   ctx.save();
   jarPath(ctx, 0, 0, w, glassH, radiusTop, 0);
   ctx.clip();
-  drawWorld(ctx, state, now, 0, 0, w, glassH, detail, opts, horizon, spreadShelfSlots(state.plants));
-  drawShelfDetails(ctx, 0, 0, w, glassH, detail, horizon, now, opts);
+  drawWorld(ctx, state, now, 0, 0, w, glassH, detail, opts, horizon, {
+    slots: spreadShelfSlots(state.plants),
+    plantScale: 1.6,
+    creatureScale: 2.1,
+    soilShade: 'rgba(7, 20, 14, 0.12)',
+    decor: (decorCtx, decorX, decorY, decorW, decorH) =>
+      drawShelfDetails(
+        decorCtx,
+        decorX,
+        decorY,
+        decorW,
+        decorH,
+        detail,
+        horizon,
+        now,
+        opts,
+      ),
+  });
   drawShelfVines(ctx, w, glassH, detail, now, opts);
   drawGlass(ctx, 0, 0, w, glassH, radiusTop, 0, detail);
   ctx.restore();

@@ -7,6 +7,8 @@ export interface PlantDrawOptions {
   motion: boolean;
   night: boolean;
   detail: number;
+  /** Clamp the drawn height so a scaled-up plant never pokes through the glass. */
+  maxHeight?: number;
 }
 
 function sizeOf(scale: number) {
@@ -18,8 +20,30 @@ function shadow(
   x: number,
   y: number,
   width: number,
+  height = 1,
 ): void {
-  rect(ctx, x - Math.round(width / 2), y, width, 1, 'rgba(19, 38, 27, 0.34)');
+  rect(ctx, x - Math.round(width / 2), y, width, height, 'rgba(19, 38, 27, 0.34)');
+}
+
+/** Conservative height of the tallest drawn pixel at scale 1, including heads. */
+function plantTopUnits(plant: Plant): number {
+  const g = plant.growth;
+  switch (plant.species) {
+    case 'fern':
+      return 6 + 42 * Math.pow(g, 0.85);
+    case 'mushroom':
+      return 5 + 19.2 * g;
+    case 'flower':
+      return 6 + 33.1 * g;
+    case 'succulent':
+      return 3 + 12 * g;
+    case 'vine':
+      return 8 + 48 * g;
+    case 'crystal':
+      return 5 + 27 * g;
+    default:
+      return 4;
+  }
 }
 
 function flowerPalette(seed: number) {
@@ -371,12 +395,23 @@ export function drawPlant(
   opts: PlantDrawOptions,
 ): void {
   const g = plant.growth;
+  let drawScale = scale;
+  if (opts.maxHeight && opts.maxHeight > 0) {
+    const units = plantTopUnits(plant);
+    if (units * drawScale > opts.maxHeight) drawScale = opts.maxHeight / units;
+  }
   const sway = opts.motion
-    ? Math.round(Math.sin(opts.now * 0.0011 + (plant.seed % 100) * 0.13) * (0.8 + scale * 0.25))
+    ? Math.round(Math.sin(opts.now * 0.0011 + (plant.seed % 100) * 0.13) * (0.8 + drawScale * 0.25))
     : 0;
-  const s = sizeOf(scale);
+  const s = sizeOf(drawScale);
 
-  shadow(ctx, Math.round(x), baseY, Math.max(3, Math.round(7 * scale * (0.6 + g * 0.6))));
+  shadow(
+    ctx,
+    Math.round(x),
+    baseY,
+    Math.max(3, Math.round(7 * drawScale * (0.6 + g * 0.6))),
+    drawScale >= 1.3 ? 2 : 1,
+  );
   if (g < 0.12) {
     px(ctx, Math.round(x), baseY - 1, P.moss.bright);
     px(ctx, Math.round(x) - 1, baseY - 2, P.moss.light);
@@ -385,22 +420,22 @@ export function drawPlant(
 
   switch (plant.species) {
     case 'fern':
-      drawFern(ctx, plant, x, baseY, scale, opts, sway);
+      drawFern(ctx, plant, x, baseY, drawScale, opts, sway);
       break;
     case 'mushroom':
-      drawMushroom(ctx, plant, x, baseY, scale, opts, sway);
+      drawMushroom(ctx, plant, x, baseY, drawScale, opts, sway);
       break;
     case 'flower':
-      drawFlower(ctx, plant, x, baseY, scale, opts, sway);
+      drawFlower(ctx, plant, x, baseY, drawScale, opts, sway);
       break;
     case 'succulent':
-      drawSucculent(ctx, plant, x, baseY, scale, opts, sway);
+      drawSucculent(ctx, plant, x, baseY, drawScale, opts, sway);
       break;
     case 'vine':
-      drawVine(ctx, plant, x, baseY, scale, opts, sway);
+      drawVine(ctx, plant, x, baseY, drawScale, opts, sway);
       break;
     case 'crystal':
-      drawCrystal(ctx, plant, x, baseY, scale, opts, sway);
+      drawCrystal(ctx, plant, x, baseY, drawScale, opts, sway);
       break;
     default:
       break;
@@ -413,7 +448,7 @@ export function drawPlant(
   }
 
   // A tiny ring of disturbed moss at the base makes the plant feel planted.
-  if (scale > 0.8) {
+  if (drawScale > 0.8) {
     px(ctx, Math.round(x) - s(2), baseY, P.moss.dark);
     px(ctx, Math.round(x) + s(2), baseY, P.moss.dark);
   }

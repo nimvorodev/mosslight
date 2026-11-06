@@ -52,8 +52,9 @@ tray menu, or with `Ctrl+Alt+S`:
 - **Floating jar** — a small frameless jar you can drag anywhere. It remembers
   its spot between sessions.
 - **Window shelf** — a full-width, low vivarium anchored to the bottom of the
-  work area, directly above the taskbar. A young garden spreads its plants out
-  across the whole shelf instead of bunching at one end.
+  work area, directly above the taskbar. A young garden starts as a compact bed
+  in the middle and widens along the shelf as you plant more, so the whole
+  windowsill fills in over time.
 
 Both shapes share the same garden, so switching never resets growth or
 residents. The field notes open above the shelf and close back down to the thin
