@@ -87,6 +87,48 @@ const webBridge: AnyBridge = {
   async setGhostMode(value: boolean) {
     return value;
   },
+  async exportCutting(json: string, suggestedName: string) {
+    try {
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = suggestedName || 'mosslight-cutting.moss';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  importCutting() {
+    return new Promise<string | null>((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.moss,application/json';
+      input.style.display = 'none';
+      const finish = (value: string | null) => {
+        input.remove();
+        resolve(value);
+      };
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) {
+          finish(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => finish(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => finish(null);
+        reader.readAsText(file);
+      });
+      input.addEventListener('cancel', () => finish(null));
+      document.body.appendChild(input);
+      input.click();
+    });
+  },
   async quit() {},
 };
 

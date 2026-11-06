@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { SCENE_H, SCENE_W } from '../lib/layout';
 import { drawJar, drawShelf, type SceneEffects } from '../lib/scene';
+import { pickAt, sceneGeometry } from '../lib/interact';
 import type { TerrariumState } from '../lib/types';
 
 interface Props {
@@ -10,6 +12,11 @@ interface Props {
   idle: boolean;
   atmosphere: boolean;
   variant: 'jar' | 'shelf';
+  interactive: boolean;
+  night: boolean;
+  onPickPlant?: (id: string) => void;
+  onPickStar?: (id: string) => void;
+  onStartle?: (x: number, y: number) => void;
 }
 
 export function TerrariumCanvas({
@@ -19,6 +26,11 @@ export function TerrariumCanvas({
   idle,
   atmosphere,
   variant,
+  interactive,
+  night,
+  onPickPlant,
+  onPickStar,
+  onStartle,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef(state);
@@ -27,6 +39,12 @@ export function TerrariumCanvas({
   const idleRef = useRef(idle);
   const atmosphereRef = useRef(atmosphere);
   const variantRef = useRef(variant);
+  const interactiveRef = useRef(interactive);
+  const nightRef = useRef(night);
+  const pointerRef = useRef({ x: 0, y: 0, active: false });
+  const pickPlantRef = useRef(onPickPlant);
+  const pickStarRef = useRef(onPickStar);
+  const startleRef = useRef(onStartle);
 
   stateRef.current = state;
   effectsRef.current = effects;
@@ -34,6 +52,11 @@ export function TerrariumCanvas({
   idleRef.current = idle;
   atmosphereRef.current = atmosphere;
   variantRef.current = variant;
+  interactiveRef.current = interactive;
+  nightRef.current = night;
+  pickPlantRef.current = onPickPlant;
+  pickStarRef.current = onPickStar;
+  startleRef.current = onStartle;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -78,6 +101,7 @@ export function TerrariumCanvas({
           idle: idleRef.current,
           atmosphere: atmosphereRef.current,
           effects: effectsRef.current,
+          pointer: pointerRef.current,
         };
         if (variantRef.current === 'shelf') {
           drawShelf(context, stateRef.current, Date.now(), scene);
@@ -91,23 +115,92 @@ export function TerrariumCanvas({
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
+  const toArt = (event: ReactMouseEvent | ReactPointerEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width,
+      y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height,
+    };
+  };
+
+  const handleMove = (event: ReactPointerEvent) => {
+    const point = toArt(event);
+    pointerRef.current = { x: point.x, y: point.y, active: interactiveRef.current };
+  };
+
+  const handleLeave = () => {
+    pointerRef.current = { ...pointerRef.current, active: false };
+  };
+
+  const handleClick = (event: ReactMouseEvent) => {
+    if (!interactiveRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const point = toArt(event);
+    const geometry = sceneGeometry(
+      stateRef.current,
+      variantRef.current,
+      canvas.width,
+      canvas.height,
+    );
+    const result = pickAt(
+      stateRef.current,
+      geometry,
+      point.x,
+      point.y,
+      nightRef.current,
+      Date.now(),
+    );
+    if (result.plantId) pickPlantRef.current?.(result.plantId);
+    else if (result.star) pickStarRef.current?.(result.star.id);
+  };
+
+  const handleDoubleClick = (event: ReactMouseEvent) => {
+    if (!interactiveRef.current) return;
+    const point = toArt(event);
+    startleRef.current?.(point.x, point.y);
+  };
+
   const description = `A pixel terrarium with ${state.plants.length} plants and ${
     state.creatures.length
   } creatures. ${Math.floor(state.focusMsToday / 60_000)} minutes of sunlight today.`;
 
   return (
-    <canvas
-      ref={canvasRef}
-      className={`terrarium-canvas ${variant === 'shelf' ? 'is-shelf-canvas' : ''}`}
-      width={SCENE_W}
-      height={SCENE_H}
-      role="img"
-      aria-label={description}
-      title={
-        variant === 'shelf'
-          ? 'a living shelf above the taskbar'
-          : 'drag the jar to move it'
-      }
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className={`terrarium-canvas ${variant === 'shelf' ? 'is-shelf-canvas' : ''} ${
+          interactive ? 'is-interactive' : ''
+        }`}
+        width={SCENE_W}
+        height={SCENE_H}
+        role="img"
+        aria-label={description}
+        title={
+          variant === 'shelf'
+            ? 'a living shelf above the taskbar'
+            : interactive
+              ? 'click a plant or star; double-click to startle the residents'
+              : 'drag the jar to move it'
+        }
+        onPointerMove={handleMove}
+        onPointerLeave={handleLeave}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+      />
+      {variant === 'shelf' && interactive ? (
+        <div
+          className="terrarium-life-zone"
+          data-shelf-interactive
+          aria-hidden="true"
+          onPointerMove={handleMove}
+          onPointerLeave={handleLeave}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+        />
+      ) : null}
+    </>
   );
 }

@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld('mosslight', {
   setAlwaysOnTop: (value) => ipcRenderer.invoke('window:set-always-on-top', Boolean(value)),
   setClickThrough: (value) => ipcRenderer.invoke('window:set-click-through', Boolean(value)),
   setGhostMode: (value) => ipcRenderer.invoke('window:set-ghost', Boolean(value)),
+  exportCutting: (json, suggestedName) =>
+    ipcRenderer.invoke('cutting:export', String(json), String(suggestedName)),
+  importCutting: () => ipcRenderer.invoke('cutting:import'),
 
   setLaunchAtLogin: (value) =>
     ipcRenderer.invoke('app:set-launch-at-login', Boolean(value)),

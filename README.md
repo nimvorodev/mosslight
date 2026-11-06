@@ -44,6 +44,36 @@ the tray.
 The scene follows your local clock: soft dawn, bright midday, amber evening and a
 night sky with stars, fireflies and a sleeping garden.
 
+## Small living details
+
+These are quiet additions, not a checklist. Nothing here needs tending.
+
+- **Task constellations.** A finished task becomes a fixed star. At night, click a
+  star in the jar or open today to read it. Stars fade after about six weeks.
+- **Seed genetics.** Every seed carries a stable little genome. The same seed
+  grows the same colours and markings, so a cutting and its parent visibly belong
+  together.
+- **Herbarium cards.** Click any plant in the jar or in the garden list. The card
+  shows its species, age, growth, traits and lineage.
+- **Rest moss.** A patch on the right side of the jar only widens while you are
+  away, and slowly recedes while you are there. It fills over a day.
+- **Weather that reads the day.** Clear moss after a calm day, soft rain after
+  finished tasks, quiet fog when you have been away, and a golden dusk while a
+  focus session is running. Rare snow, leaves or petals drift through by season.
+- **Cuttings.** A mature plant (60% grown) can be saved as a small `.moss` file
+  and planted in another jar. Files stay on your machine.
+- **Creature company.** Residents notice the pointer; double-click the scene to
+  startle them into a brief, harmless scatter.
+- **Focus dusk.** Start a 25 or 50 minute session and the jar dims, grows a
+  temporary vine, and keeps a countdown in the status pill. There is no score or
+  reward attached.
+- **Seasonal drift.** The sky and moss take a soft tint from the month outside:
+  winter blue, spring pink, summer gold, autumn amber.
+
+![Finished tasks as a night constellation](docs/night.png)
+
+![A plant's herbarium card](docs/herbarium.png)
+
 ## Two ways to live
 
 Mosslight is always the real, animated scene. Choose the shape in settings, the
@@ -100,7 +130,8 @@ are the honest, living thing.
 ## Everything stays on this machine
 
 No account, no sync, no analytics, no network requests. Mosslight only knows how
-long the PC has been awake and which tasks you finish in it.
+long the PC has been awake and which tasks you finish in it. Cuttings are plain
+`.moss` files that you choose to save or open; nothing is uploaded.
 
 State lives in `%APPDATA%\Mosslight\terrarium.json` (Open data folder in
 settings). Window position, ghost mode and always-on-top live beside it in
@@ -142,7 +173,11 @@ src/
     scene.ts        the pixel scene: sky, soil, glass, jar and shelf
     plants.ts       procedurally drawn species that grow and sway
     creatures.ts    snail, ladybug, frog, firefly
-    state.ts        growth rules, tasks, streaks, normalization
+    genetics.ts     per-seed palettes, markings and herbarium labels
+    constellations.ts star positions, links and fading
+    atmosphere.ts   season tints, behavioural weather, rare visitors
+    interact.ts     pointer picking for plants and task stars
+    state.ts        growth rules, tasks, stars, cuttings, normalization
     useTerrarium.ts React hook: persistence, presence, display mode, toasts
     bridge.ts       desktop bridge, with a web fallback
     palette.ts      16-bit palette and day/night keys

@@ -1,4 +1,5 @@
 import type { Plant } from './types';
+import { traitsFor } from './genetics';
 import { P } from './palette';
 import { hash2, px, rect, withAlpha } from './pixel';
 
@@ -26,7 +27,7 @@ function shadow(
 }
 
 /** Conservative height of the tallest drawn pixel at scale 1, including heads. */
-function plantTopUnits(plant: Plant): number {
+export function plantHeightUnits(plant: Plant): number {
   const g = plant.growth;
   switch (plant.species) {
     case 'fern':
@@ -47,16 +48,6 @@ function plantTopUnits(plant: Plant): number {
   }
 }
 
-function flowerPalette(seed: number) {
-  const options = [
-    { petal: P.flower.pink, light: P.flower.pinkLight },
-    { petal: P.flower.peach, light: P.flower.peachLight },
-    { petal: P.flower.cream, light: P.flower.creamLight },
-    { petal: P.flower.lilac, light: P.flower.lilacLight },
-  ];
-  return options[Math.abs(seed) % options.length];
-}
-
 function drawFern(
   ctx: CanvasRenderingContext2D,
   plant: Plant,
@@ -67,6 +58,8 @@ function drawFern(
   sway: number,
 ): void {
   const g = plant.growth;
+  const traits = traitsFor(plant.species, plant.seed);
+  const colors = traits.colors;
   const height = Math.max(3, Math.round((2 + 42 * Math.pow(g, 0.85)) * scale));
   const stemX = x;
 
@@ -75,10 +68,10 @@ function drawFern(
     const offset =
       Math.round(Math.sin(t * 2.4 + (plant.seed % 40) * 0.05) * (0.7 + scale * 0.5) * t) +
       Math.round(sway * t);
-    const col = i % 5 === 0 ? P.fern.light : P.fern.stem;
+    const col = i % 5 === 0 ? colors.light : colors.stem;
     px(ctx, stemX + offset, baseY - i, col);
     if (i % 7 === 0 && scale > 1.1) {
-      px(ctx, stemX + offset + 1, baseY - i, P.fern.dark);
+      px(ctx, stemX + offset + 1, baseY - i, colors.dark);
     }
   }
 
@@ -92,23 +85,26 @@ function drawFern(
       Math.round(Math.sin(t * 2.4 + (plant.seed % 40) * 0.05) * (0.7 + scale * 0.5) * t) +
       tSway;
     const side = index % 2 === 0 ? 1 : -1;
-    const length = Math.max(2, Math.round((2.4 + 7.2 * g) * scale));
+    const length = Math.max(2, Math.round((2.4 + 7.2 * g) * scale * (0.94 + traits.vigor * 0.08)));
     for (let k = 0; k < length; k += 1) {
       const leafX = xAt + side * k;
       const leafY = y - Math.round(k * 0.55);
-      const color = k === length - 1 ? P.fern.light : P.fern.leaf;
+      const color = k === length - 1 ? colors.light : colors.leaf;
       px(ctx, leafX, leafY, color);
-      if (k % 2 === 0) px(ctx, leafX, leafY + 1, P.fern.dark);
+      if (k % 2 === 0) px(ctx, leafX, leafY + 1, colors.dark);
     }
-    px(ctx, xAt + side, y + 1, P.fern.dark);
+    px(ctx, xAt + side, y + 1, colors.dark);
   }
 
   if (g > 0.55) {
     const tipY = baseY - height;
     const tipX = stemX + Math.round(sway);
-    px(ctx, tipX, tipY, P.fern.light);
-    px(ctx, tipX + 1, tipY + 1, P.fern.leaf);
-    px(ctx, tipX - 1, tipY + 1, P.fern.leaf);
+    px(ctx, tipX, tipY, colors.light);
+    px(ctx, tipX + 1, tipY + 1, colors.leaf);
+    px(ctx, tipX - 1, tipY + 1, colors.leaf);
+    if (traits.marking > 0.6) {
+      px(ctx, tipX + 2, tipY + 2, withAlpha(colors.light, 0.7));
+    }
   }
 }
 
@@ -123,19 +119,14 @@ function drawMushroom(
 ): void {
   const s = sizeOf(scale);
   const g = plant.growth;
-  const variant = Math.abs(plant.seed) % 3;
-  const cap = variant === 1 ? P.mushroom.amber : variant === 2 ? P.mushroom.violet : P.mushroom.cap;
-  const capLight =
-    variant === 1
-      ? P.mushroom.amberLight
-      : variant === 2
-        ? P.mushroom.violetLight
-        : P.mushroom.capLight;
-  const capDark =
-    variant === 1 ? '#96651f' : variant === 2 ? '#6d5188' : P.mushroom.capDark;
+  const traits = traitsFor(plant.species, plant.seed);
+  const colors = traits.colors;
+  const cap = colors.cap;
+  const capLight = colors.capLight;
+  const capDark = colors.capDark;
 
   const height = Math.max(2, Math.round((3 + 15 * g) * scale));
-  const capWidth = Math.max(3, Math.round((3 + 15 * g) * scale));
+  const capWidth = Math.max(3, Math.round((3 + 15 * g) * scale * (0.94 + traits.vigor * 0.07)));
   const capHeight = Math.max(1, Math.round((1 + 4.2 * g) * scale));
   const stemWidth = Math.max(1, Math.round((1 + g * 0.9) * scale));
   const stemX = x + Math.round(sway * 0.4);
@@ -159,7 +150,7 @@ function drawMushroom(
     for (let index = 0; index < dots; index += 1) {
       const dx = Math.round((hash2(index, 3, plant.seed) - 0.5) * capWidth * 0.7);
       const dy = -Math.round((0.35 + hash2(index, 9, plant.seed) * 0.5) * capHeight);
-      if (Math.abs(dx) < capWidth / 2) px(ctx, stemX + dx, capY + dy, P.mushroom.dot);
+      if (Math.abs(dx) < capWidth / 2) px(ctx, stemX + dx, capY + dy, colors.dot);
     }
   }
 
@@ -186,8 +177,9 @@ function drawFlower(
   sway: number,
 ): void {
   const g = plant.growth;
-  const palette = flowerPalette(plant.seed);
-  const height = Math.max(2, Math.round((3 + 31 * g) * scale));
+  const traits = traitsFor(plant.species, plant.seed);
+  const palette = { petal: traits.colors.petal, light: traits.colors.petalLight };
+  const height = Math.max(2, Math.round((3 + 31 * g) * scale * (0.96 + traits.vigor * 0.05)));
   let topX = x;
   let topY = baseY;
 
@@ -259,6 +251,8 @@ function drawSucculent(
   _sway: number,
 ): void {
   const g = plant.growth;
+  const traits = traitsFor(plant.species, plant.seed);
+  const colors = traits.colors;
   const height = Math.max(2, Math.round((2 + 12 * g) * scale));
   const centerY = baseY - Math.round(height * 0.45);
   const leaves = 4 + Math.round(g * 7);
@@ -270,7 +264,8 @@ function drawSucculent(
     const length = Math.max(1, Math.round((1.8 + g * 3.4 + ring * 0.9) * scale * spread));
     const tipX = x + Math.round(Math.cos(angle) * length);
     const tipY = centerY + Math.round(Math.sin(angle) * length * 0.72);
-    const color = ring === 0 ? P.succulent.mid : ring === 1 ? P.succulent.light : P.succulent.edge;
+    const color =
+      ring === 0 ? colors.mid : ring === 1 ? colors.light : colors.edge;
     const steps = Math.max(1, length);
     for (let step = 0; step <= steps; step += 1) {
       const t = step / steps;
@@ -278,16 +273,16 @@ function drawSucculent(
         ctx,
         x + Math.round((tipX - x) * t),
         centerY + Math.round((tipY - centerY) * t),
-        t > 0.7 ? color : P.succulent.dark,
+        t > 0.7 ? color : colors.dark,
       );
     }
-    px(ctx, tipX, tipY, P.succulent.edge);
+    px(ctx, tipX, tipY, colors.edge);
   }
 
-  px(ctx, x, centerY - 1, P.succulent.edge);
-  px(ctx, x + 1, centerY - 1, P.succulent.light);
+  px(ctx, x, centerY - 1, colors.edge);
+  px(ctx, x + 1, centerY - 1, colors.light);
   if (g > 0.8) {
-    px(ctx, x - 1, centerY - 2, P.succulent.edge);
+    px(ctx, x - 1, centerY - 2, colors.edge);
   }
 }
 
@@ -302,6 +297,8 @@ function drawVine(
 ): void {
   const s = sizeOf(scale);
   const g = plant.growth;
+  const traits = traitsFor(plant.species, plant.seed);
+  const colors = traits.colors;
   const height = Math.max(3, Math.round((4 + 48 * g) * scale));
   const stakeTop = baseY - height - s(2);
 
@@ -313,7 +310,7 @@ function drawVine(
     const offset =
       Math.round(Math.sin(t * 4.1 + (plant.seed % 50) * 0.04) * (1.6 + scale * 0.8)) +
       Math.round(sway * t * 0.6);
-    px(ctx, x + offset, baseY - i, i % 6 === 0 ? P.vine.light : P.vine.stem);
+    px(ctx, x + offset, baseY - i, i % 6 === 0 ? colors.light : colors.stem);
   }
 
   const leafEvery = Math.max(4, Math.round(6 * scale));
@@ -326,18 +323,18 @@ function drawVine(
     const y = baseY - i;
     const len = Math.max(1, Math.round((1.5 + g * 1.2) * scale));
     for (let k = 1; k <= len; k += 1) {
-      px(ctx, x + offset + side * k, y - Math.round(k * 0.6), P.vine.leaf);
+      px(ctx, x + offset + side * k, y - Math.round(k * 0.6), colors.leaf);
     }
-    px(ctx, x + offset + side * (len + 1), y - Math.round((len + 1) * 0.6), P.vine.light);
+    px(ctx, x + offset + side * (len + 1), y - Math.round((len + 1) * 0.6), colors.light);
   }
 
   if (g > 0.72) {
     const topX = x + Math.round(sway * 0.6);
     const topY = baseY - height;
-    px(ctx, topX + 1, topY - 1, P.vine.bloom);
-    px(ctx, topX + 2, topY - 1, P.vine.light);
-    px(ctx, topX + 3, topY - 2, P.vine.stem);
-    px(ctx, topX + 4, topY - 2, P.vine.light);
+    px(ctx, topX + 1, topY - 1, colors.bloom);
+    px(ctx, topX + 2, topY - 1, colors.light);
+    px(ctx, topX + 3, topY - 2, colors.stem);
+    px(ctx, topX + 4, topY - 2, colors.light);
   }
 }
 
@@ -352,18 +349,27 @@ function drawCrystal(
 ): void {
   const s = sizeOf(scale);
   const g = plant.growth;
+  const traits = traitsFor(plant.species, plant.seed);
+  const colors = traits.colors;
   const height = Math.max(2, Math.round((3 + 27 * g) * scale));
   const shards = [
     { dx: -s(3), height: Math.round(height * 0.52), width: Math.max(1, Math.round(scale)) },
     { dx: 0, height, width: Math.max(1, Math.round(scale * 1.4)) },
     { dx: s(4), height: Math.round(height * 0.66), width: Math.max(1, Math.round(scale)) },
   ];
+  if (traits.variant > 0 && g > 0.55) {
+    shards.push({
+      dx: -s(6),
+      height: Math.round(height * 0.38),
+      width: Math.max(1, Math.round(scale * 0.8)),
+    });
+  }
 
   if (opts.night) {
     for (const shard of shards) {
       const cx = x + shard.dx;
       const top = baseY - shard.height;
-      ctx.fillStyle = withAlpha(P.crystal.glow, 0.1);
+      ctx.fillStyle = withAlpha(colors.glow, 0.1);
       ctx.fillRect(cx - s(3), top - s(3), s(6), shard.height + s(3));
     }
   }
@@ -374,16 +380,16 @@ function drawCrystal(
     for (let i = 0; i < shard.height; i += 1) {
       const t = i / Math.max(1, shard.height);
       const width = t > 0.82 ? 1 : shard.width;
-      const color = t > 0.9 ? P.crystal.edge : t > 0.45 ? P.crystal.mid : P.crystal.dark;
+      const color = t > 0.9 ? colors.edge : t > 0.45 ? colors.mid : colors.dark;
       rect(ctx, cx - Math.floor(width / 2), baseY - i, width, 1, color);
       if (width > 1 && t < 0.75) {
-        px(ctx, cx, baseY - i, P.crystal.light);
+        px(ctx, cx, baseY - i, colors.light);
       }
     }
-    px(ctx, cx, top - 1, P.crystal.light);
+    px(ctx, cx, top - 1, colors.light);
   }
   if (g > 0.6) {
-    px(ctx, x - s(1), baseY - Math.round(height * 0.8), P.crystal.light);
+    px(ctx, x - s(1), baseY - Math.round(height * 0.8), colors.light);
   }
 }
 
@@ -398,7 +404,7 @@ export function drawPlant(
   const g = plant.growth;
   let drawScale = scale;
   if (opts.maxHeight && opts.maxHeight > 0) {
-    const units = plantTopUnits(plant);
+    const units = plantHeightUnits(plant);
     if (units * drawScale > opts.maxHeight) drawScale = opts.maxHeight / units;
   }
   const sway = opts.motion

@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { bridge } from './lib/bridge';
-import { formatMinutes } from './lib/state';
+import { focusRemainingMs, formatMinutes } from './lib/state';
 import { sceneTheme } from './lib/scene';
 import { useTerrarium } from './lib/useTerrarium';
 import { Drawer, type DrawerTab } from './components/Drawer';
@@ -21,10 +21,19 @@ import { IconButton } from './components/IconButton';
 import { TerrariumCanvas } from './components/TerrariumCanvas';
 import { Toasts } from './components/Toasts';
 
+function focusClock(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 export default function App() {
   const { state, now, awake, effects, toasts, actions } = useTerrarium();
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState<DrawerTab>('today');
+  const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
+  const [selectedStarId, setSelectedStarId] = useState<string | null>(null);
   const welcomeOpened = useRef(false);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -132,12 +141,26 @@ export default function App() {
   const night = sceneTheme(now).night;
   const resting = !awake || state.settings.paused;
   const openTasks = state.tasks.filter((task) => !task.done).length;
+  const focusActive = Boolean(state.focus && now < state.focus.endsAt);
+  const focusLeft = focusActive ? focusRemainingMs(state, now) : 0;
+
+  const pickPlant = (id: string) => {
+    setSelectedPlantId((current) => (current === id ? null : id));
+    setSelectedStarId(null);
+    setTab('garden');
+  };
+
+  const pickStar = (id: string) => {
+    setSelectedStarId((current) => (current === id ? null : id));
+    setSelectedPlantId(null);
+    setTab('today');
+  };
 
   return (
     <div
       className={`shell ${expanded ? 'is-expanded' : ''} ${shelf ? 'is-shelf' : ''} ${
         night ? 'is-night' : ''
-      }`}
+      } ${focusActive ? 'is-focusing' : ''}`}
     >
       <section className="scene">
         <div className="atmosphere" aria-hidden="true" />
@@ -175,6 +198,11 @@ export default function App() {
           idle={resting}
           atmosphere={state.settings.atmosphere}
           variant={shelf ? 'shelf' : 'jar'}
+          interactive={expanded}
+          night={night}
+          onPickPlant={pickPlant}
+          onPickStar={pickStar}
+          onStartle={actions.startle}
         />
 
         <button
@@ -189,6 +217,14 @@ export default function App() {
             {resting ? <Moon size={12} /> : <Sun size={12} />}
             {resting ? 'resting' : `${formatMinutes(state.focusMsToday)} sun`}
           </span>
+          {focusActive ? (
+            <>
+              <span className="pill-divider" aria-hidden="true" />
+              <span className="pill-item is-focus">
+                <Moon size={12} /> {focusClock(focusLeft)}
+              </span>
+            </>
+          ) : null}
           <span className="pill-divider" aria-hidden="true" />
           <span className="pill-item">
             <Droplets size={12} /> {state.dew}
@@ -210,10 +246,15 @@ export default function App() {
       {expanded ? (
         <Drawer
           state={state}
+          now={now}
           actions={actions}
           tab={tab}
           onTab={setTab}
           onClose={() => setExpanded(false)}
+          selectedPlantId={selectedPlantId}
+          selectedStarId={selectedStarId}
+          onSelectPlant={setSelectedPlantId}
+          onSelectStar={setSelectedStarId}
         />
       ) : null}
     </div>

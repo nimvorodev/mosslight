@@ -1761,3 +1761,554 @@ select:focus-visible {
   line-height: 1.45;
   color: rgba(200, 215, 188, 0.6);
 }
+
+/* ---------- stars, focus dusk, weather ---------- */
+
+.pill-item.is-focus,
+.pill-item.is-focus svg {
+  color: var(--amber);
+}
+
+.weather-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 239, 213, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.012));
+}
+
+.weather-icon {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--sage);
+}
+
+.weather-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.weather-label {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--cream);
+}
+
+.weather-detail {
+  font-size: 9.5px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.weather-rare {
+  font-size: 9px;
+  color: var(--rose);
+}
+
+.weather-season {
+  flex: 0 0 auto;
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-dim);
+  white-space: nowrap;
+}
+
+.weather-rain .weather-icon {
+  color: #9dbdcc;
+}
+
+.weather-fog .weather-icon {
+  color: #a7b7b0;
+}
+
+.weather-golden {
+  border-color: rgba(231, 192, 121, 0.24);
+}
+
+.weather-golden .weather-icon {
+  color: var(--amber);
+  background: rgba(231, 192, 121, 0.1);
+}
+
+.focus-card {
+  padding: 8px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 239, 213, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.012));
+}
+
+.focus-card.is-active {
+  border-color: rgba(231, 192, 121, 0.28);
+  background:
+    radial-gradient(circle at 82% 0%, rgba(231, 192, 121, 0.14), transparent 62%),
+    linear-gradient(180deg, rgba(36, 29, 50, 0.42), rgba(255, 255, 255, 0.012));
+}
+
+.focus-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.focus-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--cream);
+}
+
+.focus-title svg {
+  color: var(--amber);
+}
+
+.focus-clock {
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  color: var(--amber);
+}
+
+.focus-note {
+  font-size: 9px;
+  color: var(--muted-dim);
+}
+
+.focus-meter {
+  margin-top: 7px;
+}
+
+.focus-card.is-active .focus-meter > span {
+  background: linear-gradient(90deg, #c9a45a, #f0bf78);
+}
+
+.focus-detail {
+  margin: 6px 0 0;
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.focus-card .text-button {
+  margin-top: 5px;
+}
+
+.focus-options {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.focus-choice {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(231, 192, 121, 0.22);
+  background: rgba(231, 192, 121, 0.08);
+  color: var(--cream);
+  font-family: var(--font-pixel);
+  font-size: 9px;
+}
+
+.focus-choice span {
+  font-size: 6.5px;
+  color: var(--muted);
+}
+
+.focus-choice:hover {
+  border-color: rgba(231, 192, 121, 0.42);
+  background: rgba(231, 192, 121, 0.16);
+}
+
+.star-note {
+  margin-bottom: 6px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  border: 1px solid rgba(196, 213, 236, 0.18);
+  background: linear-gradient(180deg, rgba(120, 150, 190, 0.11), rgba(255, 255, 255, 0.012));
+}
+
+.star-note-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.star-mark {
+  color: #ffe9b8;
+  font-size: 11px;
+  text-shadow: 0 0 8px rgba(255, 233, 184, 0.6);
+}
+
+.star-when {
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  color: #9dbdcc;
+}
+
+.star-note-head .task-delete {
+  margin-left: auto;
+}
+
+.star-text {
+  margin: 4px 0 3px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--cream);
+}
+
+.star-foot {
+  font-size: 8.5px;
+  color: var(--muted-dim);
+}
+
+.star-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.star-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--cream);
+  text-align: left;
+}
+
+.star-row:hover {
+  border-color: rgba(196, 213, 236, 0.22);
+  background: rgba(160, 190, 220, 0.06);
+}
+
+.star-row.is-selected {
+  border-color: rgba(255, 233, 184, 0.3);
+  background: rgba(255, 233, 184, 0.06);
+}
+
+.star-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.star-row-age {
+  flex: 0 0 auto;
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  color: var(--muted-dim);
+}
+
+.night-empty {
+  text-align: left;
+}
+
+/* ---------- rest moss, herbarium, cuttings ---------- */
+
+.rest-card {
+  padding: 8px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(168, 201, 141, 0.14);
+  background:
+    radial-gradient(circle at 88% 100%, rgba(168, 201, 141, 0.12), transparent 56%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.rest-card.is-full {
+  border-color: rgba(168, 201, 141, 0.3);
+}
+
+.rest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rest-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--cream);
+}
+
+.rest-title svg {
+  color: var(--sage);
+}
+
+.rest-level {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--sage);
+}
+
+.rest-meter {
+  margin-top: 6px;
+}
+
+.rest-copy {
+  margin: 5px 0 0;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.mini-action {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(226, 239, 213, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  white-space: nowrap;
+}
+
+.mini-action:hover {
+  border-color: rgba(168, 201, 141, 0.3);
+  background: rgba(168, 201, 141, 0.08);
+  color: var(--cream);
+}
+
+.planted-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planted-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--cream);
+  text-align: left;
+}
+
+.planted-row:hover {
+  border-color: rgba(168, 201, 141, 0.28);
+  background: rgba(168, 201, 141, 0.06);
+}
+
+.planted-row.is-selected {
+  border-color: rgba(168, 201, 141, 0.45);
+  background: rgba(168, 201, 141, 0.09);
+}
+
+.planted-thumb {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  display: block;
+  overflow: hidden;
+  border-radius: 6px;
+  background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.16));
+}
+
+.planted-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.planted-name {
+  font-family: var(--font-pixel);
+  font-size: 7.5px;
+  color: var(--cream);
+}
+
+.planted-meta {
+  font-size: 8.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.herbarium-card {
+  margin-top: 7px;
+  padding: 9px;
+  border-radius: 11px;
+  border: 1px solid rgba(168, 201, 141, 0.24);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(168, 201, 141, 0.12), transparent 56%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.herbarium-top {
+  display: flex;
+  gap: 8px;
+}
+
+.herbarium-thumb {
+  flex: 0 0 68px;
+  width: 68px;
+  height: 68px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.18));
+}
+
+.herbarium-copy {
+  min-width: 0;
+}
+
+.herbarium-copy h3 {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--cream);
+}
+
+.herbarium-trait {
+  margin: 2px 0 4px;
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.herbarium-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.herbarium-facts span {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  color: var(--sage);
+}
+
+.herbarium-lineage {
+  margin: 7px 0 0;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.herbarium-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 7px;
+}
+
+.cutting-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: 1px solid rgba(231, 192, 121, 0.28);
+  background: rgba(231, 192, 121, 0.1);
+  color: var(--cream);
+  font-family: var(--font-pixel);
+  font-size: 7px;
+}
+
+.cutting-button svg {
+  color: var(--amber);
+}
+
+.cutting-button:hover:not(:disabled) {
+  border-color: rgba(231, 192, 121, 0.48);
+  background: rgba(231, 192, 121, 0.18);
+}
+
+.cutting-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.herbarium-empty,
+.herbarium-hint {
+  text-align: left;
+}
+
+.herbarium-hint {
+  margin-top: 6px;
+}
+
+/* ---------- poking the living things ---------- */
+
+.terrarium-canvas.is-interactive {
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.terrarium-canvas.is-interactive:active {
+  cursor: default;
+}
+
+.is-expanded .terrarium-canvas {
+  -webkit-app-region: no-drag;
+}
+
+.shell.is-shelf .terrarium-canvas.is-interactive {
+  cursor: pointer;
+}
+
+.terrarium-life-zone {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.is-focusing .atmosphere {
+  background: radial-gradient(
+    circle at 50% 46%,
+    rgba(240, 191, 120, 0.16),
+    rgba(120, 90, 110, 0.05) 48%,
+    transparent 72%
+  );
+}

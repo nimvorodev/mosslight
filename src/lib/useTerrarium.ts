@@ -2,12 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { bridge } from './bridge';
 import {
   MIST_COST,
+  OFFLINE_REST_CAP_MS,
   TASK_DEW,
   TASK_SPORES,
+  addRest,
   addTask,
+  applyOfflineRest,
   applyPresence,
   completeTask as completeTaskState,
+  cuttingFromPlant,
+  cuttingToJson,
   deleteTask as deleteTaskState,
+  endFocus,
   formatMinutes,
   grantBreak,
   makeInitialState,
@@ -16,9 +22,13 @@ import {
   newSpeciesUnlocks,
   normalizeDay,
   normalizeState,
+  parseCutting,
   patchSettings,
+  plantCutting,
   plantSpecies,
+  startFocus,
   syncCreatures,
+  tickFocus,
   markUnlocksSeen,
 } from './state';
 import { CREATURES, SPECIES } from './species';
@@ -48,6 +58,11 @@ export interface TerrariumActions {
   updateSettings: (patch: Partial<Settings>) => void;
   togglePause: () => void;
   toggleGhost: () => void;
+  startFocus: (minutes: number) => void;
+  stopFocus: () => void;
+  takeCutting: (plantId: string) => void;
+  importCutting: () => void;
+  startle: (x: number, y: number) => void;
   dismissOnboarding: () => void;
   hide: () => void;
   quit: () => void;
@@ -192,11 +207,13 @@ export function useTerrarium(): {
       }
 
       if (cancelled) return;
+      next = applyOfflineRest(next, Date.now());
       const synced = syncCreatures(next, Date.now());
       next = markUnlocksSeen(synced.state, newSpeciesUnlocks(synced.state));
       stateRef.current = next;
       setState(next);
       loadedRef.current = true;
+      flushSave(next);
       void bridge.setDisplayMode(next.settings.display);
       void bridge.setAlwaysOnTop(next.settings.alwaysOnTop);
       void bridge.setLaunchAtLogin(next.settings.launchAtLogin);
@@ -240,11 +257,28 @@ export function useTerrarium(): {
       ) {
         breakAwarded.current = true;
         activeStretch.current = 0;
-        const rested = applyPresence(current, 0, at).state;
-        commitNext(grantBreak(rested, at), {
+        const gap = Math.min(
+          OFFLINE_REST_CAP_MS,
+          Math.max(0, at - current.lastSeenAt),
+        );
+        let rested = current;
+        if (gap >= 30_000) rested = addRest(current, gap, at);
+        const after = applyPresence(rested, 0, at).state;
+        commitNext(grantBreak(after, at), {
           toasts: [{ text: 'break bonus · +2 dew', tone: 'good' }],
         });
         return;
+      }
+
+      if (tick.idleSeconds > 90) {
+        const gap = Math.min(
+          OFFLINE_REST_CAP_MS,
+          Math.max(0, at - current.lastSeenAt),
+        );
+        if (gap >= 30_000) {
+          commitNext(addRest(current, gap, at), { announce: false });
+          return;
+        }
       }
 
       if (at - current.lastSeenAt > 60_000) {
@@ -265,6 +299,29 @@ export function useTerrarium(): {
     }, 20_000);
     return () => window.clearInterval(timer);
   }, [commitNext]);
+
+  const focusEndsAt = state?.focus?.endsAt ?? 0;
+  useEffect(() => {
+    if (!focusEndsAt) return;
+    const timer = window.setInterval(() => {
+      const current = stateRef.current;
+      if (!current) return;
+      const clock = Date.now();
+      setNow(clock);
+      const result = tickFocus(current, clock);
+      if (result.completed) {
+        setEffects((currentEffects) => ({ ...currentEffects, focusDoneAt: clock }));
+        commitNext(result.state, {
+          toasts: [{ text: 'focus complete · the dusk settles', tone: 'good' }],
+          flush: true,
+        });
+        return;
+      }
+      const normalized = normalizeDay(current, clock);
+      if (normalized !== current) commitNext(normalized, { announce: false });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [focusEndsAt, commitNext]);
 
   useEffect(() => {
     const save = () => {
@@ -403,6 +460,98 @@ export function useTerrarium(): {
     pushToast('ghost mode on · Ctrl+Alt+T to return', 'info', 6500);
   }, [pushToast]);
 
+  const startFocusAction = useCallback(
+    (minutes: number) => {
+      const current = stateRef.current;
+      if (!current) return;
+      const base = normalizeDay(current, Date.now());
+      const result = startFocus(base, minutes, Date.now());
+      if (result.error) {
+        pushToast(result.error, 'warn');
+        return;
+      }
+      const session = result.state.focus;
+      pushToast(
+        session
+          ? `dusk for ${session.minutes}m · the jar will keep it low`
+          : 'the dusk is settling',
+        'info',
+      );
+      commitNext(result.state, { announce: false, flush: true });
+    },
+    [commitNext, pushToast],
+  );
+
+  const stopFocusAction = useCallback(() => {
+    const current = stateRef.current;
+    if (!current || !current.focus) return;
+    commitNext(endFocus(current, Date.now(), false), { announce: false, flush: true });
+    pushToast('the dusk lifts early · no harm done', 'info');
+  }, [commitNext, pushToast]);
+
+  const takeCutting = useCallback(
+    (plantId: string) => {
+      const current = stateRef.current;
+      if (!current) return;
+      const plant = current.plants.find((entry) => entry.id === plantId);
+      if (!plant) {
+        pushToast('that plant has already moved on', 'warn');
+        return;
+      }
+      const result = cuttingFromPlant(plant, Date.now());
+      if (result.error || !result.cutting) {
+        pushToast(result.error ?? 'this cutting cannot be taken', 'warn');
+        return;
+      }
+      const name = `mosslight-${plant.species}-${Math.abs(plant.seed)}.moss`;
+      void bridge
+        .exportCutting(cuttingToJson(result.cutting), name)
+        .then((saved) => {
+          if (saved) pushToast(`cutting saved · ${name}`, 'good');
+          else pushToast('the cutting stayed in the jar', 'info');
+        })
+        .catch(() => pushToast('the cutting could not be saved', 'warn'));
+    },
+    [pushToast],
+  );
+
+  const importCutting = useCallback(() => {
+    void bridge
+      .importCutting()
+      .then((text) => {
+        if (typeof text !== 'string' || !text.trim()) return;
+        const parsed = parseCutting(text);
+        if (parsed.error || !parsed.cutting) {
+          pushToast(parsed.error ?? 'that cutting could not be read', 'warn');
+          return;
+        }
+        const current = stateRef.current;
+        if (!current) return;
+        const base = normalizeDay(current, Date.now());
+        const result = plantCutting(base, parsed.cutting, Date.now());
+        if (result.error) {
+          pushToast(result.error, 'warn');
+          return;
+        }
+        pushToast(`${SPECIES[parsed.cutting.species].name} cutting planted`, 'good');
+        setEffects((currentEffects) => ({
+          ...currentEffects,
+          taskAt: Date.now(),
+        }));
+        commitNext(result.state, { announce: false, flush: true });
+      })
+      .catch(() => pushToast('that cutting could not be opened', 'warn'));
+  }, [commitNext, pushToast]);
+
+  const startleAction = useCallback((x: number, y: number) => {
+    setEffects((currentEffects) => ({
+      ...currentEffects,
+      startleAt: Date.now(),
+      startleX: x,
+      startleY: y,
+    }));
+  }, []);
+
   const dismissOnboarding = useCallback(() => {
     const current = stateRef.current;
     if (!current) return;
@@ -434,6 +583,11 @@ export function useTerrarium(): {
       updateSettings,
       togglePause,
       toggleGhost,
+      startFocus: startFocusAction,
+      stopFocus: stopFocusAction,
+      takeCutting,
+      importCutting,
+      startle: startleAction,
       dismissOnboarding,
       hide: () => void bridge.hideWindow(),
       quit: () => void bridge.quit(),

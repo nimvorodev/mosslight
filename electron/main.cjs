@@ -9,6 +9,7 @@ const {
   nativeImage,
   powerMonitor,
   screen,
+  dialog,
   shell: electronShell,
 } = require('electron');
 const path = require('node:path');
@@ -86,6 +87,12 @@ function main() {
     if (IS_SHOT) {
       await fsp.rm(statePath, { force: true }).catch(() => {});
       await fsp.rm(shellPath, { force: true }).catch(() => {});
+      // Development convenience: seed the screenshot jar with a showcase save.
+      if (process.env.MOSS_SHOT_SEED) {
+        await fsp
+          .copyFile(process.env.MOSS_SHOT_SEED, statePath)
+          .catch(() => {});
+      }
     }
 
     loadShell();
@@ -108,7 +115,11 @@ function main() {
     });
 
     if (IS_SHOT) {
-      runScreenshots();
+      runScreenshots().catch((error) => {
+        console.error('[mosslight] screenshot run failed', error);
+        isQuitting = true;
+        app.quit();
+      });
     } else {
       win.once('ready-to-show', () => {
         win.showInactive();
@@ -641,6 +652,47 @@ function setupIpc() {
     await stateWriteChain;
   });
 
+  ipcMain.handle('cutting:export', async (_event, json, suggestedName) => {
+    if (typeof json !== 'string' || json.length > 64_000) {
+      throw new Error('invalid cutting payload');
+    }
+    try {
+      JSON.parse(json);
+    } catch {
+      throw new Error('cutting is not valid JSON');
+    }
+    const safeName =
+      typeof suggestedName === 'string' && suggestedName.trim()
+        ? suggestedName.replace(/[^a-zA-Z0-9._-]/g, '-')
+        : 'mosslight-cutting.moss';
+    const result = await dialog.showSaveDialog(win, {
+      title: 'Take a cutting',
+      defaultPath: path.join(app.getPath('documents'), safeName),
+      filters: [{ name: 'Mosslight cutting', extensions: ['moss'] }],
+    });
+    if (result.canceled || !result.filePath) return false;
+    const target = result.filePath.endsWith('.moss')
+      ? result.filePath
+      : `${result.filePath}.moss`;
+    await fsp.writeFile(target, json, 'utf8');
+    return true;
+  });
+
+  ipcMain.handle('cutting:import', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Plant a cutting',
+      properties: ['openFile'],
+      filters: [{ name: 'Mosslight cutting', extensions: ['moss', 'json'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const file = result.filePaths[0];
+    const stat = await fsp.stat(file);
+    if (!stat.isFile() || stat.size > 64_000) {
+      throw new Error('cutting is too large');
+    }
+    return fsp.readFile(file, 'utf8');
+  });
+
   ipcMain.handle('window:set-expanded', (_event, value) => {
     setExpanded(value);
   });
@@ -733,7 +785,21 @@ async function runScreenshots() {
     await fsp.writeFile(path.join(outDir, name), image.toPNG());
   };
 
+  await win.webContents.executeJavaScript(
+    "if (!document.querySelector('.drawer')) document.querySelector('.status-pill')?.click(); void 0;",
+  );
+  await wait(700);
+
   await shoot('expanded.png');
+
+  await win.webContents.executeJavaScript(
+    "document.querySelector('.drawer-body')?.scrollTo(0, 999999); void 0;",
+  );
+  await wait(500);
+  await shoot('night.png');
+  await win.webContents.executeJavaScript(
+    "document.querySelector('.drawer-body')?.scrollTo(0, 0); void 0;",
+  );
 
   await win.webContents.executeJavaScript(
     "document.querySelector('.close-button')?.click(); void 0;",
@@ -750,6 +816,16 @@ async function runScreenshots() {
   );
   await wait(700);
   await shoot('garden.png');
+
+  await win.webContents.executeJavaScript(
+    "document.querySelectorAll('.planted-row')[6]?.click(); void 0;",
+  );
+  await wait(450);
+  await win.webContents.executeJavaScript(
+    "document.querySelector('.herbarium-card')?.scrollIntoView({ block: 'center' }); void 0;",
+  );
+  await wait(450);
+  await shoot('herbarium.png');
 
   await win.webContents.executeJavaScript(
     "Array.from(document.querySelectorAll('.tabs button')).find((button) => button.textContent.includes('settings'))?.click(); void 0;",

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Check, Droplets, Flame, ListTodo, SlidersHorizontal, Sparkles, Sprout, Sun, X } from 'lucide-react';
 import { formatMinutes } from '../lib/state';
 import type { TerrariumState } from '../lib/types';
@@ -11,10 +12,15 @@ export type DrawerTab = 'today' | 'garden' | 'settings';
 
 interface Props {
   state: TerrariumState;
+  now: number;
   actions: TerrariumActions;
   tab: DrawerTab;
   onTab: (tab: DrawerTab) => void;
   onClose: () => void;
+  selectedPlantId: string | null;
+  selectedStarId: string | null;
+  onSelectPlant: (id: string | null) => void;
+  onSelectStar: (id: string | null) => void;
 }
 
 const TABS: { id: DrawerTab; label: string; icon: typeof ListTodo }[] = [
@@ -23,8 +29,24 @@ const TABS: { id: DrawerTab; label: string; icon: typeof ListTodo }[] = [
   { id: 'settings', label: 'settings', icon: SlidersHorizontal },
 ];
 
-export function Drawer({ state, actions, tab, onTab, onClose }: Props) {
+export function Drawer({
+  state,
+  now,
+  actions,
+  tab,
+  onTab,
+  onClose,
+  selectedPlantId,
+  selectedStarId,
+  onSelectPlant,
+  onSelectStar,
+}: Props) {
   const openTasks = state.tasks.filter((task) => !task.done).length;
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+  }, [tab]);
 
   return (
     <aside className="drawer" aria-label="Mosslight field notes" data-shelf-interactive>
@@ -80,9 +102,25 @@ export function Drawer({ state, actions, tab, onTab, onClose }: Props) {
         </nav>
       </header>
 
-      <div className="drawer-body">
-        {tab === 'today' ? <TodayPanel state={state} actions={actions} /> : null}
-        {tab === 'garden' ? <GardenPanel state={state} actions={actions} /> : null}
+      <div className="drawer-body" ref={bodyRef}>
+        {tab === 'today' ? (
+          <TodayPanel
+            state={state}
+            now={now}
+            actions={actions}
+            selectedStarId={selectedStarId}
+            onSelectStar={onSelectStar}
+          />
+        ) : null}
+        {tab === 'garden' ? (
+          <GardenPanel
+            state={state}
+            now={now}
+            actions={actions}
+            selectedPlantId={selectedPlantId}
+            onSelectPlant={onSelectPlant}
+          />
+        ) : null}
         {tab === 'settings' ? (
           <SettingsPanel state={state} actions={actions} />
         ) : null}

@@ -4,21 +4,40 @@
  */
 import assert from 'node:assert/strict';
 import {
+  CUTTING_MIN_GROWTH,
   MIST_COST,
+  OFFLINE_REST_CAP_MS,
+  REST_MOSS_FULL_MS,
+  STAR_RETENTION_MS,
   SUN_CAP_MS,
   TASK_DEW,
   TASK_SPORES,
+  addRest,
   addTask,
+  applyOfflineRest,
   applyPresence,
   completeTask,
+  cuttingFromPlant,
+  cuttingToJson,
+  focusRemainingMs,
   makeInitialState,
   mistPlants,
   normalizeDay,
   normalizeState,
+  parseCutting,
+  plantCutting,
   plantSpecies,
+  pruneStars,
+  startFocus,
   syncCreatures,
+  tickFocus,
 } from '../src/lib/state';
 import { SPECIES } from '../src/lib/species';
+import { ageLabel, traitsFor } from '../src/lib/genetics';
+import { rareWeatherFor, seasonAt, weatherFor } from '../src/lib/atmosphere';
+import { starPoint } from '../src/lib/constellations';
+import { pickAt, sceneGeometry } from '../src/lib/interact';
+import type { TaskStar } from '../src/lib/types';
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -245,6 +264,189 @@ check('the jar is never empty after normalization', () => {
   const state = makeInitialState(now);
   const broken = normalizeState({ ...state, plants: [] }, now);
   assert.ok(broken.plants.length > 0);
+});
+
+check('finished tasks become stars in the sky', () => {
+  const now = NOW;
+  let state = makeInitialState(now);
+  state = addTask(state, 'send the note', now).state;
+  const result = completeTask(state, state.tasks[0].id, now + MINUTE);
+  assert.equal(result.state.stars.length, 1);
+  const star = result.state.stars[0];
+  assert.equal(star.text, 'send the note');
+  assert.ok(star.x >= 0 && star.x <= 1);
+  assert.ok(star.y >= 0 && star.y <= 1);
+});
+
+check('old stars fade out of the sky', () => {
+  const now = NOW;
+  const state = makeInitialState(now);
+  const old = { ...state.stars[0], at: now - STAR_RETENTION_MS - DAY };
+  const fresh = pruneStars(
+    [
+      { ...old, id: 'old', text: 'long gone' },
+      {
+        id: 'new',
+        taskId: 'new',
+        text: 'still here',
+        at: now - HOUR,
+        x: 0.4,
+        y: 0.2,
+        size: 1,
+        color: 0,
+      },
+    ],
+    now,
+  );
+  assert.equal(fresh.length, 1);
+  assert.equal(fresh[0].text, 'still here');
+});
+
+check('rest moss grows only while away and caps at eight hours', () => {
+  const now = NOW;
+  const state = makeInitialState(now);
+  const before = state.restMs;
+  const quiet = applyOfflineRest(state, now + 2 * HOUR);
+  assert.equal(quiet.restMs, before + 2 * HOUR);
+
+  const capped = applyOfflineRest(state, now + 30 * HOUR);
+  assert.equal(capped.restMs, OFFLINE_REST_CAP_MS);
+
+  const tiny = applyOfflineRest(state, now + 20_000);
+  assert.equal(tiny.restMs, before, 'a brief blink does not count');
+
+  const overflow = addRest(state, REST_MOSS_FULL_MS * 2, now + HOUR);
+  assert.equal(overflow.restMs, OFFLINE_REST_CAP_MS);
+
+  const awake = applyPresence(quiet, HOUR, now + 3 * HOUR).state;
+  assert.equal(awake.restMs, before + HOUR, 'being present wears the moss back');
+});
+
+check('a focus session runs down and completes', () => {
+  const now = NOW;
+  const started = startFocus(makeInitialState(now), 25, now);
+  assert.ok(started.state.focus);
+  assert.equal(focusRemainingMs(started.state, now), 25 * MINUTE);
+
+  const early = tickFocus(started.state, now + 24 * MINUTE);
+  assert.equal(early.completed, false);
+  assert.ok(early.state.focus, 'the dusk is still going');
+
+  const done = tickFocus(started.state, now + 25 * MINUTE);
+  assert.equal(done.completed, true);
+  assert.equal(done.state.focus, null);
+  assert.equal(done.state.lastFocusDoneAt, now + 25 * MINUTE);
+});
+
+check('a cutting round trips through a .moss file and replants', () => {
+  const now = NOW;
+  const base = makeInitialState(now);
+  const state = {
+    ...base,
+    plants: base.plants.map((plant, index) =>
+      index === 0 ? { ...plant, growth: CUTTING_MIN_GROWTH + 0.2 } : plant,
+    ),
+  };
+  const parent = state.plants[0];
+  const taken = cuttingFromPlant(parent, now);
+  assert.equal(taken.error, undefined);
+  assert.ok(taken.cutting);
+
+  const json = cuttingToJson(taken.cutting);
+  const parsed = parseCutting(json);
+  assert.equal(parsed.error, undefined);
+  assert.ok(parsed.cutting);
+
+  const planted = plantCutting(state, parsed.cutting, now + MINUTE);
+  assert.equal(planted.error, undefined);
+  assert.equal(planted.state.plants.length, state.plants.length + 1);
+  const child = planted.state.plants[planted.state.plants.length - 1];
+  assert.equal(child.species, parent.species);
+  assert.equal(child.seed, parent.seed);
+  assert.equal(child.parent?.species, parent.species);
+  assert.ok(child.growth < taken.cutting.growth, 'a cutting starts a little shorter');
+});
+
+check('unreadable cuttings are refused', () => {
+  assert.ok(parseCutting('not json').error);
+  assert.ok(parseCutting(JSON.stringify({ kind: 'something-else', version: 1 })).error);
+  assert.ok(
+    parseCutting(
+      JSON.stringify({ kind: 'mosslight-cutting', version: 1, species: 'bogus', growth: 1 }),
+    ).error,
+  );
+});
+
+check('genetics are stable per seed and name their traits', () => {
+  const first = traitsFor('fern', 412);
+  const again = traitsFor('fern', 412);
+  assert.deepEqual(first.colors, again.colors);
+  assert.equal(first.name, again.name);
+
+  const neighbour = traitsFor('fern', 413);
+  assert.notEqual(neighbour.variant, first.variant);
+
+  assert.equal(ageLabel(NOW, NOW), 'planted today');
+  assert.equal(ageLabel(NOW - DAY, NOW), '1 day old');
+  assert.equal(ageLabel(NOW - 3 * DAY, NOW), '3 days old');
+});
+
+check('weather reads the day without scolding it', () => {
+  const now = NOW;
+  const base = makeInitialState(now);
+  assert.equal(weatherFor(base, now).label, 'clear');
+
+  const paused = { ...base, settings: { ...base.settings, paused: true } };
+  assert.equal(weatherFor(paused, now).kind, 'fog');
+
+  const focused = startFocus(base, 25, now).state;
+  assert.equal(weatherFor(focused, now).kind, 'golden');
+
+  let raining = base;
+  for (let index = 0; index < 2; index += 1) {
+    raining = addTask(raining, `done ${index}`, now).state;
+    const id = raining.tasks[raining.tasks.length - 1].id;
+    raining = completeTask(raining, id, now + MINUTE).state;
+  }
+  assert.equal(weatherFor(raining, now + 2 * MINUTE).kind, 'rain');
+});
+
+check('seasonal drift is stable across the year', () => {
+  assert.equal(seasonAt(new Date(2023, 0, 15).getTime()).id, 'winter');
+  assert.equal(seasonAt(new Date(2023, 3, 15).getTime()).id, 'spring');
+  assert.equal(seasonAt(new Date(2023, 6, 15).getTime()).id, 'summer');
+  assert.equal(seasonAt(new Date(2023, 9, 15).getTime()).id, 'autumn');
+  assert.equal(rareWeatherFor(new Date(2023, 6, 15).getTime()), null, 'summer stays clear');
+});
+
+check('plants and stars can be picked from the jar', () => {
+  const state = makeInitialState(NOW);
+  const geometry = sceneGeometry(state, 'jar', 192, 160);
+
+  const plant = state.plants[0];
+  const slot = geometry.slots[plant.slot];
+  const plantX = geometry.x + slot.x * geometry.w;
+  const plantY = geometry.y + (geometry.horizon + slot.y - 0.68) * geometry.h;
+  const pickedPlant = pickAt(state, geometry, plantX, plantY - 3, false, NOW);
+  assert.equal(pickedPlant.plantId, plant.id);
+
+  const star: TaskStar = {
+    id: 'st_pick',
+    taskId: 'tk_pick',
+    text: 'a finished thing',
+    at: NOW,
+    x: 0.5,
+    y: 0.2,
+    size: 1,
+    color: 0,
+  };
+  const starState = { ...state, stars: [star] };
+  const point = starPoint(star, geometry.sky);
+  const pickedStar = pickAt(starState, geometry, point.x, point.y, true, NOW);
+  assert.equal(pickedStar.star?.id, star.id);
+
+  const daytime = pickAt(starState, geometry, point.x, point.y, false, NOW);
+  assert.equal(daytime.star, null, 'stars are only clickable at night');
 });
 
 console.log('all checks passed');

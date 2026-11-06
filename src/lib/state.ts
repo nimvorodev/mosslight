@@ -8,15 +8,22 @@ import {
   harmony,
   isSpeciesUnlocked,
 } from './species';
+import { makeStar } from './constellations';
 import type {
   Creature,
   CreatureId,
+  CuttingFile,
+  FocusSession,
   Plant,
+  PlantParent,
   Settings,
   SpeciesId,
   Task,
+  TaskStar,
   TerrariumState,
 } from './types';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const SUN_CAP_MS = 6 * 60 * 60 * 1000;
 export const MIST_COST = 2;
@@ -27,6 +34,15 @@ export const TASK_GROWTH = 0.015;
 export const BREAK_DEW = 2;
 export const MAX_TASKS = 30;
 export const MAX_PLANTS = PLANT_SLOTS.length;
+export const MAX_STARS = 60;
+export const STAR_RETENTION_MS = 45 * DAY_MS;
+export const REST_MOSS_FULL_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_REST_CAP_MS = 8 * 60 * 60 * 1000;
+export const CUTTING_MIN_GROWTH = 0.6;
+export const CUTTING_TRIM = 0.04;
+export const FOCUS_MIN_MINUTES = 5;
+export const FOCUS_MAX_MINUTES = 120;
+export const FOCUS_DEFAULT_MINUTES = 25;
 
 export const DEFAULT_SETTINGS: Settings = {
   display: 'jar',
@@ -124,6 +140,10 @@ export function makeInitialState(now = Date.now()): TerrariumState {
     tasks: [],
     plants,
     creatures,
+    stars: [],
+    restMs: 0,
+    focus: null,
+    lastFocusDoneAt: 0,
     lastBreakAt: 0,
     onboardingDone: false,
     seenUnlocks: ['fern', 'mushroom'],
@@ -164,6 +184,16 @@ function sanitizeSettings(input: unknown): Settings {
   };
 }
 
+function sanitizeParent(input: unknown): PlantParent | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const raw = input as Partial<PlantParent>;
+  if (!isSpecies(raw.species)) return undefined;
+  return {
+    species: raw.species,
+    plantedAt: finite(raw.plantedAt, Date.now()),
+  };
+}
+
 function sanitizePlants(input: unknown): Plant[] {
   if (!Array.isArray(input)) return [];
   const usedSlots = new Set<number>();
@@ -179,6 +209,7 @@ function sanitizePlants(input: unknown): Plant[] {
     let id = typeof raw.id === 'string' ? raw.id : makeId('pl');
     if (!id || usedIds.has(id)) id = makeId('pl');
     usedIds.add(id);
+    const parent = sanitizeParent(raw.parent);
     plants.push({
       id,
       species: raw.species,
@@ -186,6 +217,7 @@ function sanitizePlants(input: unknown): Plant[] {
       growth: clamp(finite(raw.growth, 0.1), 0, 1),
       plantedAt: finite(raw.plantedAt, Date.now()),
       seed: Math.floor(finite(raw.seed, randomSeed())),
+      ...(parent ? { parent } : {}),
     });
   }
   return plants.slice(0, MAX_PLANTS);
@@ -233,6 +265,56 @@ function sanitizeTasks(input: unknown): Task[] {
   return tasks.slice(-MAX_TASKS);
 }
 
+/** Keep the sky recent and finite; old stars are allowed to fade. */
+export function pruneStars(stars: TaskStar[], now = Date.now()): TaskStar[] {
+  return stars
+    .filter((star) => Number.isFinite(star.at) && now - star.at <= STAR_RETENTION_MS)
+    .sort((a, b) => a.at - b.at)
+    .slice(-MAX_STARS);
+}
+
+function sanitizeStars(input: unknown, now: number): TaskStar[] {
+  if (!Array.isArray(input)) return [];
+  const stars: TaskStar[] = [];
+  const usedIds = new Set<string>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = item as Partial<TaskStar>;
+    const text = typeof raw.text === 'string' ? raw.text.trim().slice(0, 140) : '';
+    if (!text) continue;
+    const taskId = typeof raw.taskId === 'string' ? raw.taskId : makeId('tk');
+    let id = typeof raw.id === 'string' ? raw.id : `st_${taskId}`;
+    if (!id || usedIds.has(id)) id = makeId('st');
+    usedIds.add(id);
+    stars.push({
+      id,
+      taskId,
+      text,
+      at: finite(raw.at, now),
+      x: clamp(finite(raw.x, 0.5), 0.04, 0.96),
+      y: clamp(finite(raw.y, 0.3), 0.04, 0.94),
+      size: clamp(Math.round(finite(raw.size, 1)), 1, 2),
+      color: clamp(Math.round(finite(raw.color, 0)), 0, 3),
+    });
+  }
+  return pruneStars(stars, now);
+}
+
+function sanitizeFocus(input: unknown, now: number): FocusSession | null {
+  if (!input || typeof input !== 'object') return null;
+  const raw = input as Partial<FocusSession>;
+  const minutes = clamp(
+    Math.round(finite(raw.minutes, FOCUS_DEFAULT_MINUTES)),
+    FOCUS_MIN_MINUTES,
+    FOCUS_MAX_MINUTES,
+  );
+  const startedAt = Math.min(now, finite(raw.startedAt, now - 60_000));
+  const proposedEnd = finite(raw.endsAt, startedAt + minutes * 60_000);
+  const endsAt = Math.min(proposedEnd, startedAt + FOCUS_MAX_MINUTES * 60_000);
+  if (endsAt <= now) return null;
+  return { startedAt, endsAt, minutes };
+}
+
 export function normalizeState(input: unknown, now = Date.now()): TerrariumState {
   if (!input || typeof input !== 'object') return makeInitialState(now);
   const raw = input as Partial<TerrariumState>;
@@ -259,6 +341,10 @@ export function normalizeState(input: unknown, now = Date.now()): TerrariumState
     tasks: sanitizeTasks(raw.tasks),
     plants: sanitizePlants(raw.plants),
     creatures: sanitizeCreatures(raw.creatures),
+    stars: sanitizeStars(raw.stars, now),
+    restMs: clamp(finite(raw.restMs, 0), 0, REST_MOSS_FULL_MS),
+    focus: sanitizeFocus(raw.focus, now),
+    lastFocusDoneAt: Math.max(0, finite(raw.lastFocusDoneAt, 0)),
     lastBreakAt: Math.max(0, finite(raw.lastBreakAt, 0)),
     onboardingDone: Boolean(raw.onboardingDone),
     seenUnlocks: Array.isArray(raw.seenUnlocks)
@@ -354,6 +440,10 @@ export function completeTask(
     tasks: state.tasks.map((item) =>
       item.id === taskId ? { ...item, done: true, doneAt: now } : item,
     ),
+    stars: pruneStars(
+      [...state.stars, makeStar(task.id, task.text, now, state.stars.length)],
+      now,
+    ),
     tasksDoneToday: state.tasksDoneToday + 1,
     tasksDoneTotal: state.tasksDoneTotal + 1,
     dew: state.dew + TASK_DEW,
@@ -446,6 +536,182 @@ export function grantBreak(
   };
 }
 
+/** 0..1, for the little moss patch that only grows in your absence. */
+export function restLevel(restMs: number): number {
+  return clamp(restMs / REST_MOSS_FULL_MS, 0, 1);
+}
+
+export function addRest(
+  state: TerrariumState,
+  quietMs: number,
+  now = Date.now(),
+): TerrariumState {
+  const added = Math.max(0, Math.min(quietMs, OFFLINE_REST_CAP_MS));
+  if (added <= 0) return state;
+  return {
+    ...state,
+    restMs: clamp(state.restMs + added, 0, REST_MOSS_FULL_MS),
+    lastSeenAt: now,
+    updatedAt: now,
+  };
+}
+
+/** On launch, the time the app was closed becomes quiet moss, capped at 8h. */
+export function applyOfflineRest(state: TerrariumState, now = Date.now()): TerrariumState {
+  const away = now - state.lastSeenAt;
+  if (away < 60_000) return state;
+  return addRest(state, away, now);
+}
+
+export function startFocus(
+  state: TerrariumState,
+  minutes: number,
+  now = Date.now(),
+): { state: TerrariumState; error?: string } {
+  if (state.focus && now < state.focus.endsAt) {
+    return { state, error: 'a dusk is already settling' };
+  }
+  const rounded = clamp(
+    Math.round(Number.isFinite(minutes) ? minutes : FOCUS_DEFAULT_MINUTES),
+    FOCUS_MIN_MINUTES,
+    FOCUS_MAX_MINUTES,
+  );
+  const focus: FocusSession = {
+    startedAt: now,
+    endsAt: now + rounded * 60_000,
+    minutes: rounded,
+  };
+  return { state: { ...state, focus, updatedAt: now } };
+}
+
+export function endFocus(
+  state: TerrariumState,
+  now = Date.now(),
+  completed = false,
+): TerrariumState {
+  if (!state.focus) return state;
+  return {
+    ...state,
+    focus: null,
+    lastFocusDoneAt: completed ? now : state.lastFocusDoneAt,
+    updatedAt: now,
+  };
+}
+
+export function tickFocus(
+  state: TerrariumState,
+  now = Date.now(),
+): { state: TerrariumState; completed: boolean } {
+  if (!state.focus) return { state, completed: false };
+  if (now < state.focus.endsAt) return { state, completed: false };
+  return { state: endFocus(state, now, true), completed: true };
+}
+
+export function focusRemainingMs(state: TerrariumState, now = Date.now()): number {
+  if (!state.focus) return 0;
+  return Math.max(0, state.focus.endsAt - now);
+}
+
+/** A cutting is a portable snapshot of one plant's genome and age. */
+export function cuttingFromPlant(
+  plant: Plant,
+  now = Date.now(),
+): { cutting?: CuttingFile; error?: string } {
+  if (plant.growth < CUTTING_MIN_GROWTH) {
+    return { error: 'let it grow a little more before taking a cutting' };
+  }
+  const parent = plant.parent ?? {
+    species: plant.species,
+    plantedAt: plant.plantedAt,
+  };
+  return {
+    cutting: {
+      kind: 'mosslight-cutting',
+      version: 1,
+      species: plant.species,
+      growth: clamp(plant.growth, 0, 1),
+      seed: Math.floor(plant.seed),
+      plantedAt: plant.plantedAt,
+      takenAt: now,
+      parent,
+    },
+  };
+}
+
+export function cuttingToJson(cutting: CuttingFile): string {
+  return JSON.stringify(cutting, null, 2);
+}
+
+export function parseCutting(text: string): { cutting?: CuttingFile; error?: string } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { error: 'that file is not a Mosslight cutting' };
+  }
+  if (!raw || typeof raw !== 'object') {
+    return { error: 'that file is not a Mosslight cutting' };
+  }
+  const value = raw as Partial<CuttingFile>;
+  if (value.kind !== 'mosslight-cutting' || value.version !== 1) {
+    return { error: 'that file is not a Mosslight cutting' };
+  }
+  if (!isSpecies(value.species)) {
+    return { error: 'this cutting has no known species' };
+  }
+  const growth = finite(value.growth, 0);
+  if (growth < 0.3) {
+    return { error: 'this cutting is too small to plant' };
+  }
+  const parent = sanitizeParent(value.parent);
+  return {
+    cutting: {
+      kind: 'mosslight-cutting',
+      version: 1,
+      species: value.species,
+      growth: clamp(growth, 0, 1),
+      seed: Math.floor(finite(value.seed, randomSeed())),
+      plantedAt: finite(value.plantedAt, Date.now()),
+      takenAt: finite(value.takenAt, Date.now()),
+      ...(parent ? { parent } : {}),
+    },
+  };
+}
+
+export function plantCutting(
+  state: TerrariumState,
+  cutting: CuttingFile,
+  now = Date.now(),
+): { state: TerrariumState; error?: string; planted?: boolean } {
+  if (!isSpecies(cutting.species)) return { state, error: 'unknown cutting' };
+  if (state.plants.length >= MAX_PLANTS) return { state, error: 'the jar is full' };
+  const used = new Set(state.plants.map((plant) => plant.slot));
+  const slot = PLANT_SLOTS.findIndex((_, index) => !used.has(index));
+  if (slot < 0) return { state, error: 'the jar is full' };
+
+  const parent: PlantParent = cutting.parent ?? {
+    species: cutting.species,
+    plantedAt: cutting.plantedAt,
+  };
+  const plant: Plant = {
+    id: makeId('pl'),
+    species: cutting.species,
+    slot,
+    growth: clamp(cutting.growth - CUTTING_TRIM, 0.24, 0.98),
+    plantedAt: now,
+    seed: Math.floor(cutting.seed),
+    parent,
+  };
+  return {
+    state: {
+      ...state,
+      plants: [...state.plants, plant],
+      updatedAt: now,
+    },
+    planted: true,
+  };
+}
+
 /**
  * Presence is sunlight. Growth is capped at six hours per day so the jar
  * rewards a normal day rather than an endless one.
@@ -482,6 +748,8 @@ export function applyPresence(
     focusMsTotal: next.focusMsTotal + activeMs,
     sunMsToday: next.sunMsToday + sunMs,
     plants,
+    // Quiet moss only grows while away; being present slowly wears it back.
+    restMs: Math.max(0, next.restMs - activeMs),
     lastSeenAt: now,
     updatedAt: now,
   };

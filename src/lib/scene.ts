@@ -1,4 +1,4 @@
-import type { TerrariumState } from './types';
+import type { TerrariumState, TaskStar } from './types';
 import { JAR, PLANT_SLOTS, SCENE_H, SCENE_W } from './layout';
 import type { PlantSlot } from './layout';
 import { P, SKY_KEYS } from './palette';
@@ -19,13 +19,34 @@ import {
   vline,
   withAlpha,
 } from './pixel';
+import {
+  focusDuskActive,
+  rareWeatherFor,
+  seasonAt,
+  weatherFor,
+  type RareWeather,
+  type SeasonState,
+  type WeatherState,
+} from './atmosphere';
+import { constellationPairs, starPoint } from './constellations';
+import { REST_MOSS_FULL_MS, STAR_RETENTION_MS } from './state';
 import { drawPlant } from './plants';
 import { drawCreature } from './creatures';
+
+export interface PointerState {
+  x: number;
+  y: number;
+  active: boolean;
+}
 
 export interface SceneEffects {
   mistAt: number;
   taskAt: number;
   unlockAt: number;
+  startleAt: number;
+  startleX: number;
+  startleY: number;
+  focusDoneAt: number;
 }
 
 export interface SceneOptions {
@@ -33,9 +54,18 @@ export interface SceneOptions {
   idle: boolean;
   atmosphere: boolean;
   effects: SceneEffects;
+  pointer?: PointerState | null;
 }
 
-export const EMPTY_EFFECTS: SceneEffects = { mistAt: 0, taskAt: 0, unlockAt: 0 };
+export const EMPTY_EFFECTS: SceneEffects = {
+  mistAt: 0,
+  taskAt: 0,
+  unlockAt: 0,
+  startleAt: 0,
+  startleX: 0,
+  startleY: 0,
+  focusDoneAt: 0,
+};
 
 export interface SkyState {
   top: string;
@@ -146,6 +176,43 @@ function drawCloud(
   rect(ctx, x + 6 * s, y - s, 2 * s, s, color);
 }
 
+const STAR_TINTS = ['#ffe9b8', '#e8f4ef', '#d7e6ff', '#f7d9e0'];
+
+function drawTaskStars(
+  ctx: CanvasRenderingContext2D,
+  stars: TaskStar[],
+  now: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  opacity: number,
+): void {
+  if (opacity <= 0.02 || stars.length === 0) return;
+  const sky = { x, y, w, h };
+  const points = stars.map((star) => starPoint(star, sky));
+  for (const [a, b] of constellationPairs(stars)) {
+    const first = points[a];
+    const second = points[b];
+    if (!first || !second) continue;
+    pixelLine(ctx, first.x, first.y, second.x, second.y, withAlpha('#cfe3ef', opacity * 0.16));
+  }
+  stars.forEach((star, index) => {
+    const point = points[index];
+    if (!point) return;
+    const twinkle = 0.62 + 0.38 * Math.sin(now * 0.0011 + index * 1.7);
+    const tint = STAR_TINTS[star.color % STAR_TINTS.length];
+    const alpha = opacity * twinkle;
+    px(ctx, point.x, point.y, withAlpha(tint, alpha));
+    if (star.size > 1) {
+      px(ctx, point.x - 1, point.y, withAlpha(tint, alpha * 0.55));
+      px(ctx, point.x + 1, point.y, withAlpha(tint, alpha * 0.55));
+      px(ctx, point.x, point.y - 1, withAlpha(tint, alpha * 0.7));
+      px(ctx, point.x, point.y + 1, withAlpha(tint, alpha * 0.45));
+    }
+  });
+}
+
 function drawSky(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -155,11 +222,16 @@ function drawSky(
   now: number,
   detail: number,
   horizon: number,
+  season: SeasonState,
+  stars: TaskStar[],
 ): SkyState {
   const sky = skyAt(now);
-  bandedGradient(ctx, x, y, w, h, sky.top, sky.bottom, 20);
+  const top = mixHex(sky.top, season.tint, 0.13);
+  const bottom = mixHex(sky.bottom, season.mossTint, 0.1);
+  bandedGradient(ctx, x, y, w, h, top, bottom, 20);
   const starOpacity = clamp(0.75 - sky.light * 1.6, 0, 0.85);
   drawStars(ctx, x, y, w, h * horizon + 2, now, starOpacity);
+  drawTaskStars(ctx, stars, now, x, y, w, h * horizon, starOpacity * 0.95);
   drawSunAndMoon(ctx, x, y, w, h, sky, detail);
 
   if (sky.light > 0.3) {
@@ -348,8 +420,247 @@ function drawStaticDecor(
   }
 }
 
+/** A quiet mound that only widens while you are away from the jar. */
+function drawRestMoss(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  detail: number,
+  horizon: number,
+  restMs: number,
+  now: number,
+  opts: SceneOptions,
+): void {
+  const level = clamp(restMs / REST_MOSS_FULL_MS, 0, 1);
+  if (level < 0.012) return;
+
+  const s = Math.max(1, Math.round(detail));
+  const centerX = Math.round(x + w * 0.895);
+  const baseY = Math.round(y + h * (horizon + 0.125));
+  const width = Math.round((4 + 20 * level) * s);
+  const height = Math.round((2 + 6 * level) * s);
+  const sway = opts.motion ? Math.round(Math.sin(now * 0.0012) * level) : 0;
+
+  pixelEllipse(ctx, centerX, baseY, Math.round(width / 2), Math.max(1, Math.round(height / 2)), P.moss.deep);
+  for (let row = 0; row < height; row += 1) {
+    const t = row / Math.max(1, height - 1);
+    const span = Math.round((width / 2) * Math.sqrt(Math.max(0, 1 - t * t)));
+    for (let column = -span; column <= span; column += 1) {
+      const noise = hash2(column + centerX, row + baseY, 173);
+      const color =
+        t < 0.25
+          ? P.moss.sun
+          : noise > 0.72
+            ? P.moss.bright
+            : noise > 0.4
+              ? P.moss.light
+              : P.moss.mid;
+      px(ctx, centerX + column + sway, baseY - row, color);
+    }
+  }
+
+  if (level > 0.45) {
+    const stalks = 2 + Math.round(level * 3);
+    for (let index = 0; index < stalks; index += 1) {
+      const sx = centerX + Math.round((hash2(index, 4, 179) - 0.5) * width * 0.75);
+      const sh = Math.max(1, Math.round((1 + hash2(index, 7, 179) * 3 * level) * s));
+      vline(ctx, sx, baseY - height - sh + 1, sh, P.moss.dark);
+      px(ctx, sx, baseY - height - sh, P.moss.bright);
+      if (level > 0.75 && index % 2 === 0) {
+        px(ctx, sx + 1, baseY - height - sh + 1, P.moss.sun);
+      }
+    }
+  }
+}
+
+function drawWeather(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  now: number,
+  detail: number,
+  weather: WeatherState,
+  season: SeasonState,
+  rare: RareWeather,
+  opts: SceneOptions,
+): void {
+  const motion = opts.motion ? 1 : 0.25;
+  const strength = opts.atmosphere ? 1 : 0.55;
+
+  if (weather.kind === 'rain') {
+    const count = Math.max(12, Math.round(w / 12));
+    for (let index = 0; index < count; index += 1) {
+      const dropX = x + hash2(index, 3, 211) * w;
+      const speed = (0.05 + hash2(index, 7, 211) * 0.08) * motion;
+      const dropY = y + ((hash2(index, 11, 211) * h + now * speed * detail) % (h * 0.92));
+      vline(ctx, dropX, dropY, Math.max(1, Math.round(detail * (1 + hash2(index, 13, 211)))), withAlpha('#c5dde2', 0.26 * strength));
+      px(ctx, dropX, dropY + 1, withAlpha('#e8f5f2', 0.22 * strength));
+    }
+  } else if (weather.kind === 'fog') {
+    for (let index = 0; index < 4; index += 1) {
+      const bandY =
+        y +
+        h * (0.34 + index * 0.1) +
+        Math.sin(now * 0.00018 + index) * 2 * detail * motion;
+      const bandW = w * (0.55 + hash2(index, 4, 223) * 0.35);
+      const bandX = x + (w - bandW) * hash2(index, 9, 223) + Math.sin(now * 0.00012 + index) * 5 * motion;
+      ctx.fillStyle = withAlpha('#d7e6e2', 0.045 * strength);
+      ctx.fillRect(Math.round(bandX), Math.round(bandY), Math.round(bandW), Math.max(2, Math.round(4 * detail)));
+    }
+  } else if (weather.kind === 'golden') {
+    ctx.fillStyle = withAlpha('#f0bf78', 0.055 * strength);
+    ctx.fillRect(x, y, w, h);
+    for (let index = 0; index < 12; index += 1) {
+      const gx = x + hash2(index, 5, 227) * w;
+      const gy = y + h * (0.2 + hash2(index, 8, 227) * 0.45);
+      const pulse = 0.45 + 0.55 * Math.sin(now * 0.0009 + index * 1.4);
+      px(ctx, gx, gy, withAlpha('#ffe3a4', 0.35 * pulse * strength));
+    }
+  }
+
+  if (!rare) return;
+  const count = opts.motion ? 30 : 16;
+  for (let index = 0; index < count; index += 1) {
+    const speed = 0.012 + hash2(index, 5, 233) * 0.02;
+    const drift = Math.sin(now * 0.00025 + index * 1.7) * 5 * motion;
+    const pxX = x + ((hash2(index, 3, 233) * w + now * 0.004 * motion + drift) % w);
+    const pxY =
+      y + ((hash2(index, 9, 233) * h * 0.82 + now * speed * detail * motion) % (h * 0.86));
+    if (rare === 'snow') {
+      px(ctx, pxX, pxY, withAlpha('#f2fbff', 0.62 * strength));
+      if (index % 4 === 0) px(ctx, pxX + 1, pxY, withAlpha('#d8edf7', 0.45 * strength));
+    } else if (rare === 'leaves') {
+      const color = index % 3 === 0 ? season.tint : index % 3 === 1 ? '#c9904d' : '#b86f45';
+      px(ctx, pxX, pxY, withAlpha(color, 0.62 * strength));
+      px(ctx, pxX + 1, pxY, withAlpha(color, 0.42 * strength));
+      if (index % 2 === 0) px(ctx, pxX, pxY + 1, withAlpha(color, 0.3 * strength));
+    } else {
+      const color = index % 2 === 0 ? '#f8c7d3' : '#f3ecd2';
+      px(ctx, pxX, pxY, withAlpha(color, 0.6 * strength));
+      px(ctx, pxX - 1, pxY, withAlpha(color, 0.35 * strength));
+      px(ctx, pxX + 1, pxY, withAlpha(color, 0.35 * strength));
+      if (index % 3 === 0) px(ctx, pxX, pxY - 1, withAlpha(color, 0.35 * strength));
+    }
+  }
+}
+
+function drawFocus(
+  ctx: CanvasRenderingContext2D,
+  state: TerrariumState,
+  now: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  detail: number,
+  horizon: number,
+  opts: SceneOptions,
+): void {
+  const active = focusDuskActive(state, now);
+  const doneElapsed = now - opts.effects.focusDoneAt;
+  const afterglow =
+    opts.effects.focusDoneAt > 0 && doneElapsed >= 0 && doneElapsed < 4200
+      ? 1 - doneElapsed / 4200
+      : 0;
+
+  if (!active && afterglow <= 0) return;
+
+  if (active) {
+    const progress = clamp(
+      (now - state.focus!.startedAt) / Math.max(1, state.focus!.endsAt - state.focus!.startedAt),
+      0,
+      1,
+    );
+    ctx.fillStyle = withAlpha('#241d32', 0.2);
+    ctx.fillRect(x, y, w, h);
+    for (let band = 0; band < 7; band += 1) {
+      const bandY = y + h * (0.5 + band * 0.07);
+      ctx.fillStyle = withAlpha('#e8a76a', 0.014 * (band + 1) * (0.6 + progress * 0.4));
+      ctx.fillRect(x, Math.round(bandY), w, Math.max(1, Math.round(h * 0.07)));
+    }
+
+    const vineHeight = Math.round(Math.min(h * 0.62, (9 + 42 * progress) * detail));
+    const baseX = Math.round(x + w * 0.86);
+    const baseY = Math.round(y + h * (horizon + 0.13));
+    let previousX = baseX;
+    let previousY = baseY;
+    for (let step = 0; step <= vineHeight; step += 1) {
+      const t = step / Math.max(1, vineHeight);
+      const vx =
+        baseX -
+        Math.sin(t * 3.1 + now * 0.0004) * 4 * detail * t -
+        Math.round(t * 5 * detail);
+      const vy = baseY - step;
+      pixelLine(ctx, previousX, previousY, vx, vy, step % 7 === 0 ? P.vine.light : P.vine.stem);
+      previousX = vx;
+      previousY = vy;
+      if (step > 2 && step % 6 === 0) {
+        const side = step % 12 === 0 ? 1 : -1;
+        px(ctx, vx + side * Math.max(1, Math.round(detail)), vy, P.vine.leaf);
+        px(ctx, vx + side * Math.max(1, Math.round(detail * 2)), vy, P.vine.light);
+      }
+    }
+    if (progress > 0.42) {
+      const bloomX = Math.round(previousX);
+      const bloomY = Math.round(previousY);
+      px(ctx, bloomX, bloomY, P.vine.bloom);
+      px(ctx, bloomX - 1, bloomY, P.crystal.glow);
+      px(ctx, bloomX + 1, bloomY, P.vine.light);
+      px(ctx, bloomX, bloomY - 1, P.crystal.light);
+    }
+  }
+
+  if (afterglow > 0) {
+    for (let index = 0; index < 18; index += 1) {
+      const angle = hash2(index, 2, 241) * Math.PI * 2;
+      const radius = (4 + hash2(index, 6, 241) * 20) * detail * (1 - afterglow);
+      px(
+        ctx,
+        x + w * 0.5 + Math.cos(angle) * radius,
+        y + h * 0.44 + Math.sin(angle) * radius * 0.6,
+        withAlpha(index % 2 === 0 ? '#ffe3a4' : '#f8c7d3', afterglow * 0.8),
+      );
+    }
+  }
+}
+
+
+
 function creatureScale(detail: number): number {
   return 0.9 * detail;
+}
+
+function startleAmount(effects: SceneEffects, now: number): number {
+  if (effects.startleAt <= 0) return 0;
+  const elapsed = now - effects.startleAt;
+  if (elapsed < 0 || elapsed >= 900) return 0;
+  return 1 - elapsed / 900;
+}
+
+function scatterX(
+  baseX: number,
+  effects: SceneEffects,
+  now: number,
+  detail: number,
+): number {
+  const amount = startleAmount(effects, now);
+  if (amount <= 0) return 0;
+  const away = baseX >= effects.startleX ? 1 : -1;
+  return Math.round(away * amount * 8 * detail);
+}
+
+function nearPointer(
+  pointer: PointerState | null | undefined,
+  x: number,
+  y: number,
+  radius: number,
+): boolean {
+  if (!pointer?.active) return false;
+  return Math.hypot(pointer.x - x, pointer.y - y) <= radius;
 }
 
 function drawGroundCreatures(
@@ -374,28 +685,52 @@ function drawGroundCreatures(
       const phase = t * 0.000045 + creature.seed * 0.001;
       const nx = 0.1 + 0.8 * (0.5 + 0.5 * Math.sin(phase));
       const ny = horizon + 0.127 + 0.012 * Math.sin(t * 0.00021 + creature.seed);
+      const baseX = Math.round(x + nx * w);
+      const baseY = Math.round(y + ny * h) + 1;
+      const startle = startleAmount(opts.effects, now);
       drawCreature(
         ctx,
         'snail',
-        Math.round(x + nx * w),
-        Math.round(y + ny * h) + 1,
+        baseX + scatterX(baseX, opts.effects, now, detail),
+        baseY,
         Math.cos(phase) >= 0 ? 1 : -1,
         baseScale,
         creature.seed,
-        { now, motion: opts.motion, night: sky.night, idle: opts.idle },
+        {
+          now,
+          motion: opts.motion,
+          night: sky.night,
+          idle: opts.idle,
+          reaction: {
+            near: nearPointer(opts.pointer, baseX, baseY - 3 * detail, 13 * detail),
+            startle,
+          },
+        },
       );
     } else if (creature.species === 'ladybug') {
       const phase = t * 0.00013 + creature.seed * 0.01;
       const nx = 0.08 + 0.84 * (0.5 + 0.5 * Math.sin(phase));
+      const baseX = Math.round(x + nx * w);
+      const baseY = Math.round(y + (horizon + 0.092) * h);
+      const startle = startleAmount(opts.effects, now);
       drawCreature(
         ctx,
         'ladybug',
-        Math.round(x + nx * w),
-        Math.round(y + (horizon + 0.092) * h),
+        baseX + scatterX(baseX, opts.effects, now, detail),
+        baseY,
         Math.cos(phase) >= 0 ? 1 : -1,
         baseScale,
         creature.seed,
-        { now, motion: opts.motion, night: sky.night, idle: opts.idle },
+        {
+          now,
+          motion: opts.motion,
+          night: sky.night,
+          idle: opts.idle,
+          reaction: {
+            near: nearPointer(opts.pointer, baseX, baseY - 2 * detail, 11 * detail),
+            startle,
+          },
+        },
       );
     }
   }
@@ -418,15 +753,27 @@ function drawFrog(
   if (!frog) return;
   const slow = opts.idle ? 0.35 : 1;
   const nx = 0.78 + 0.12 * Math.sin(now * slow * 0.00003 + frog.seed);
+  const baseX = Math.round(x + nx * w);
+  const baseY = Math.round(y + (horizon + 0.155) * h) + 1;
+  const startle = startleAmount(opts.effects, now);
   drawCreature(
     ctx,
     'frog',
-    Math.round(x + nx * w),
-    Math.round(y + (horizon + 0.155) * h) + 1,
+    baseX + scatterX(baseX, opts.effects, now, detail) * 1.4,
+    baseY,
     1,
     1.02 * detail,
     frog.seed,
-    { now, motion: opts.motion, night: sky.night, idle: opts.idle },
+    {
+      now,
+      motion: opts.motion,
+      night: sky.night,
+      idle: opts.idle,
+      reaction: {
+        near: nearPointer(opts.pointer, baseX, baseY - 4 * detail, 15 * detail),
+        startle,
+      },
+    },
   );
 }
 
@@ -449,15 +796,27 @@ function drawFireflies(
   const t = now * slow;
   const nx = 0.12 + 0.76 * (0.5 + 0.5 * Math.sin(t * 0.00007 + firefly.seed * 0.001));
   const ny = 0.24 + 0.3 * (0.5 + 0.5 * Math.sin(t * 0.00011 + firefly.seed * 0.002));
+  const baseX = Math.round(x + nx * w);
+  const baseY = Math.round(y + ny * h);
+  const startle = startleAmount(opts.effects, now);
   drawCreature(
     ctx,
     'firefly',
-    Math.round(x + nx * w),
-    Math.round(y + ny * h),
+    baseX + scatterX(baseX, opts.effects, now, detail) * 2.2,
+    baseY - Math.round(startle * 7 * detail),
     1,
     detail,
     firefly.seed,
-    { now, motion: opts.motion, night: sky.night, idle: opts.idle },
+    {
+      now,
+      motion: opts.motion,
+      night: sky.night,
+      idle: opts.idle,
+      reaction: {
+        near: nearPointer(opts.pointer, baseX, baseY, 18 * detail),
+        startle,
+      },
+    },
   );
 }
 
@@ -551,6 +910,21 @@ function drawEffects(
       px(ctx, cx, cy, withAlpha(color, fade));
     }
   }
+
+  const startleElapsed = now - effects.startleAt;
+  if (effects.startleAt > 0 && startleElapsed >= 0 && startleElapsed < 700) {
+    const fade = 1 - startleElapsed / 700;
+    const radius = (3 + (startleElapsed / 700) * 18) * detail;
+    for (let index = 0; index < 18; index += 1) {
+      const angle = (index / 18) * Math.PI * 2;
+      px(
+        ctx,
+        effects.startleX + Math.cos(angle) * radius,
+        effects.startleY + Math.sin(angle) * radius * 0.5,
+        withAlpha('#e8dcc0', fade * 0.5),
+      );
+    }
+  }
 }
 
 function drawDust(
@@ -640,13 +1014,20 @@ function drawWorld(
   layout: WorldLayout = {},
 ): void {
   const slots = layout.slots ?? PLANT_SLOTS;
-  const sky = drawSky(ctx, x, y, w, h, now, detail, horizon);
+  const season = seasonAt(now);
+  const weather = weatherFor(state, now, !opts.idle);
+  const rare = rareWeatherFor(now);
+  const stars = state.stars.filter((star) => now - star.at <= STAR_RETENTION_MS);
+  const sky = drawSky(ctx, x, y, w, h, now, detail, horizon, season, stars);
   drawSoil(ctx, x, y, w, h, detail, horizon);
+  ctx.fillStyle = withAlpha(season.mossTint, 0.05);
+  ctx.fillRect(x, y + h * horizon, w, h * (1 - horizon) + 1);
   if (layout.soilShade) {
     ctx.fillStyle = layout.soilShade;
     ctx.fillRect(x, y + h * horizon, w, h * (1 - horizon) + 1);
   }
   drawStaticDecor(ctx, x, y, w, h, detail, horizon);
+  drawRestMoss(ctx, x, y, w, h, detail, horizon, state.restMs, now, opts);
   layout.decor?.(ctx, x, y, w, h);
 
   const scaleBase = detail * (layout.plantScale ?? 1);
@@ -692,8 +1073,10 @@ function drawWorld(
   if (opts.atmosphere) {
     drawDust(ctx, x, y, w, h, now, detail, sky.light);
   }
+  drawWeather(ctx, x, y, w, h, now, detail, weather, season, rare, opts);
   drawEffects(ctx, x, y, w, h, now, detail, opts.effects);
   drawVignette(ctx, x, y, w, h, sky);
+  drawFocus(ctx, state, now, x, y, w, h, detail, horizon, opts);
 
   if (opts.idle) {
     drawSleep(
@@ -846,7 +1229,7 @@ export const SHELF_SLOTS: PlantSlot[] = [
  * plant widens the bed outward, so the garden visibly grows along the windowsill
  * instead of jumping to the far edges on day one.
  */
-function spreadShelfSlots(plants: TerrariumState['plants']): PlantSlot[] {
+export function spreadShelfSlots(plants: TerrariumState['plants']): PlantSlot[] {
   const used = plants
     .map((plant) => plant.slot)
     .filter(

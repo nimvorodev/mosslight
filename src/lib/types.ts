@@ -11,6 +11,11 @@ export type CreatureId = 'snail' | 'ladybug' | 'firefly' | 'frog';
 /** How Mosslight lives on the desktop: a floating jar or a full-width shelf. */
 export type DisplayMode = 'jar' | 'shelf';
 
+export interface PlantParent {
+  species: SpeciesId;
+  plantedAt: number;
+}
+
 export interface Plant {
   id: string;
   species: SpeciesId;
@@ -19,6 +24,41 @@ export interface Plant {
   growth: number;
   plantedAt: number;
   seed: number;
+  /** Set when this plant was grown from a cutting rather than a spore. */
+  parent?: PlantParent;
+}
+
+/** A finished task, remembered as a star in the night sky. */
+export interface TaskStar {
+  id: string;
+  taskId: string;
+  text: string;
+  at: number;
+  /** 0..1 across the visible sky. */
+  x: number;
+  /** 0..1 down the visible sky. */
+  y: number;
+  size: number;
+  /** 0..3, picks a star tint. */
+  color: number;
+}
+
+export interface FocusSession {
+  startedAt: number;
+  endsAt: number;
+  minutes: number;
+}
+
+/** A portable .moss cutting. Everything here is local and plain JSON. */
+export interface CuttingFile {
+  kind: 'mosslight-cutting';
+  version: 1;
+  species: SpeciesId;
+  growth: number;
+  seed: number;
+  plantedAt: number;
+  takenAt: number;
+  parent?: PlantParent;
 }
 
 export interface Creature {
@@ -64,6 +104,12 @@ export interface TerrariumState {
   tasks: Task[];
   plants: Plant[];
   creatures: Creature[];
+  /** Finished tasks, kept as a slow-fading constellation. */
+  stars: TaskStar[];
+  /** Quiet milliseconds collected while the jar is alone. */
+  restMs: number;
+  focus: FocusSession | null;
+  lastFocusDoneAt: number;
   lastBreakAt: number;
   onboardingDone: boolean;
   seenUnlocks: SpeciesId[];
@@ -128,6 +174,8 @@ export interface MosslightBridge {
   onPresence: (callback: (tick: PresenceTick) => void) => () => void;
   onCommand: (callback: (command: ShellCommand) => void) => () => void;
   setGhostMode: (value: boolean) => Promise<boolean>;
+  exportCutting: (json: string, suggestedName: string) => Promise<boolean>;
+  importCutting: () => Promise<string | null>;
   quit: () => Promise<void>;
 }
 
@@ -151,6 +199,8 @@ export interface WebBridge {
   onPresence: (callback: (tick: PresenceTick) => void) => () => void;
   onCommand: (callback: (command: ShellCommand) => void) => () => void;
   setGhostMode: (value: boolean) => Promise<boolean>;
+  exportCutting: (json: string, suggestedName: string) => Promise<boolean>;
+  importCutting: () => Promise<string | null>;
   quit: () => Promise<void>;
 }
 
