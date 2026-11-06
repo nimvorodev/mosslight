@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { bridge } from './lib/bridge';
 import { formatMinutes } from './lib/state';
-import { EMPTY_EFFECTS, renderPortrait, sceneTheme } from './lib/scene';
+import { sceneTheme } from './lib/scene';
 import { useTerrarium } from './lib/useTerrarium';
 import { Drawer, type DrawerTab } from './components/Drawer';
 import { IconButton } from './components/IconButton';
@@ -22,12 +22,14 @@ import { TerrariumCanvas } from './components/TerrariumCanvas';
 import { Toasts } from './components/Toasts';
 
 export default function App() {
-  const { state, now, awake, effects, toasts, snapshotBusy, actions } = useTerrarium();
+  const { state, now, awake, effects, toasts, actions } = useTerrarium();
   const [expanded, setExpanded] = useState(false);
   const [tab, setTab] = useState<DrawerTab>('today');
   const welcomeOpened = useRef(false);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+
+  const shelf = state?.settings.display === 'shelf';
 
   useEffect(() => {
     void bridge.setExpanded(expanded);
@@ -40,6 +42,39 @@ export default function App() {
       setExpanded(true);
     }
   }, [state]);
+
+  // In shelf mode the window spans the screen, so the empty space above the
+  // garden must not swallow clicks. Only the controls and the open field notes
+  // become interactive; everything else passes through to the desktop.
+  useEffect(() => {
+    if (!bridge.isDesktop || !shelf) {
+      void bridge.setPassthrough(false);
+      return;
+    }
+
+    let ignored: boolean | null = null;
+    const update = (value: boolean) => {
+      if (ignored === value) return;
+      ignored = value;
+      void bridge.setPassthrough(value);
+    };
+    const onMove = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      update(!target?.closest?.('[data-shelf-interactive]'));
+    };
+    const onLeave = () => update(true);
+
+    document.addEventListener('mousemove', onMove);
+    document.documentElement.addEventListener('mouseleave', onLeave);
+    const hovering = Boolean(document.querySelector('[data-shelf-interactive]:hover'));
+    update(!hovering);
+
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.documentElement.removeEventListener('mouseleave', onLeave);
+      void bridge.setPassthrough(false);
+    };
+  }, [shelf]);
 
   useEffect(() => {
     return bridge.onCommand((command) => {
@@ -54,14 +89,11 @@ export default function App() {
         case 'mist':
           actionsRef.current.mist();
           break;
-        case 'snapshot-desktop':
-          void actionsRef.current.takeSnapshot('desktop');
+        case 'display-jar':
+          actionsRef.current.updateSettings({ display: 'jar' });
           break;
-        case 'snapshot-lock':
-          void actionsRef.current.takeSnapshot('lock');
-          break;
-        case 'snapshot-both':
-          void actionsRef.current.takeSnapshot('both');
+        case 'display-shelf':
+          actionsRef.current.updateSettings({ display: 'shelf' });
           break;
         case 'toggle-pause':
           actionsRef.current.togglePause();
@@ -88,22 +120,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // A small debugging affordance: render the wallpaper portrait on demand.
-  // The screenshot script and the field-notes exports both use it.
-  useEffect(() => {
-    if (!state) return;
-    window.__mosslightPortrait = (width: number, height: number) =>
-      renderPortrait(state, Date.now(), width, height, {
-        motion: false,
-        idle: false,
-        atmosphere: state.settings.atmosphere,
-        effects: EMPTY_EFFECTS,
-      });
-    return () => {
-      delete window.__mosslightPortrait;
-    };
-  }, [state]);
-
   if (!state) {
     return (
       <div className="boot" role="status">
@@ -118,7 +134,11 @@ export default function App() {
   const openTasks = state.tasks.filter((task) => !task.done).length;
 
   return (
-    <div className={`shell ${expanded ? 'is-expanded' : ''} ${night ? 'is-night' : ''}`}>
+    <div
+      className={`shell ${expanded ? 'is-expanded' : ''} ${shelf ? 'is-shelf' : ''} ${
+        night ? 'is-night' : ''
+      }`}
+    >
       <section className="scene">
         <div className="atmosphere" aria-hidden="true" />
 
@@ -126,7 +146,7 @@ export default function App() {
           <span className="brand">
             <Leaf size={11} /> mosslight
           </span>
-          <div className="scene-actions">
+          <div className="scene-actions" data-shelf-interactive>
             <IconButton
               label="open settings"
               onClick={() => {
@@ -154,6 +174,7 @@ export default function App() {
           reducedMotion={state.settings.reducedMotion}
           idle={resting}
           atmosphere={state.settings.atmosphere}
+          variant={shelf ? 'shelf' : 'jar'}
         />
 
         <button
@@ -162,6 +183,7 @@ export default function App() {
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
           aria-label={expanded ? 'Close the field notes' : 'Open tasks and field notes'}
+          data-shelf-interactive
         >
           <span className="pill-item">
             {resting ? <Moon size={12} /> : <Sun size={12} />}
@@ -192,7 +214,6 @@ export default function App() {
           tab={tab}
           onTab={setTab}
           onClose={() => setExpanded(false)}
-          snapshotBusy={snapshotBusy}
         />
       ) : null}
     </div>

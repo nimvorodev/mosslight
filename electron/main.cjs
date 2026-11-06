@@ -15,16 +15,14 @@ const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
-const { execFile } = require('node:child_process');
-const { promisify } = require('node:util');
-
-const execFileAsync = promisify(execFile);
 
 const APP_NAME = 'Mosslight';
-const COMPACT_W = 400;
-const COMPACT_H = 390;
-const EXPANDED_W = 800;
-const EXPANDED_H = 390;
+const JAR_COMPACT_W = 400;
+const JAR_COMPACT_H = 390;
+const JAR_EXPANDED_W = 800;
+const JAR_EXPANDED_H = 390;
+const SHELF_H = 250;
+const SHELF_EXPANDED_H = 644;
 const PRODUCT_ID = 'app.mosslight.terrarium';
 const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
@@ -49,6 +47,8 @@ let win = null;
 let tray = null;
 let isQuitting = false;
 let expanded = false;
+let displayMode = 'jar';
+let passthrough = true;
 let presenceTimer = null;
 let lastPoll = Date.now();
 let boundsTimer = null;
@@ -60,13 +60,11 @@ let shellState = {
   y: null,
   alwaysOnTop: true,
   launchAtLogin: false,
-  previousWallpaper: null,
 };
 
 let userDataPath = '';
 let statePath = '';
 let shellPath = '';
-let wallpapersPath = '';
 
 function main() {
   process.env.MOSS_VERSION = app.getVersion();
@@ -79,9 +77,7 @@ function main() {
     userDataPath = app.getPath('userData');
     statePath = path.join(userDataPath, 'terrarium.json');
     shellPath = path.join(userDataPath, 'window.json');
-    wallpapersPath = path.join(userDataPath, 'portraits');
     await fsp.mkdir(userDataPath, { recursive: true });
-    await fsp.mkdir(wallpapersPath, { recursive: true });
 
     if (IS_SHOT) {
       await fsp.rm(statePath, { force: true }).catch(() => {});
@@ -89,11 +85,23 @@ function main() {
     }
 
     loadShell();
+    displayMode = readDisplayMode();
+    passthrough = displayMode === 'shelf';
     setupIpc();
     createWindow();
     createTray();
     registerShortcuts();
     startPresence();
+
+    screen.on('display-metrics-changed', () => {
+      if (displayMode === 'shelf') applyLayout();
+    });
+    screen.on('display-added', () => {
+      if (displayMode === 'shelf') applyLayout();
+    });
+    screen.on('display-removed', () => {
+      if (displayMode === 'shelf') applyLayout();
+    });
 
     if (IS_SHOT) {
       runScreenshots();
@@ -126,21 +134,18 @@ function main() {
 
 function createWindow() {
   const home = initialPosition();
+  const shape = windowBounds(home, displayMode, false);
   win = new BrowserWindow({
-    x: home.x,
-    y: home.y,
-    width: COMPACT_W,
-    height: COMPACT_H,
-    minWidth: COMPACT_W,
-    minHeight: COMPACT_H,
-    maxWidth: EXPANDED_W,
-    maxHeight: EXPANDED_H,
+    x: shape.x,
+    y: shape.y,
+    width: shape.width,
+    height: shape.height,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: false,
     resizable: false,
-    movable: true,
+    movable: displayMode === 'jar',
     maximizable: false,
     minimizable: false,
     fullscreenable: false,
@@ -164,6 +169,7 @@ function createWindow() {
   if (IS_MAC) {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
   }
+  applyMouseMode();
 
   win.on('move', scheduleRememberPosition);
   win.on('resize', scheduleRememberPosition);
@@ -200,19 +206,80 @@ function initialPosition() {
   const work = primary.workArea;
   let x = Number.isFinite(shellState.x)
     ? shellState.x
-    : work.x + work.width - COMPACT_W - 26;
+    : work.x + work.width - JAR_COMPACT_W - 26;
   let y = Number.isFinite(shellState.y)
     ? shellState.y
-    : work.y + work.height - COMPACT_H - 26;
+    : work.y + work.height - JAR_COMPACT_H - 26;
 
   const display = screen.getDisplayNearestPoint({
-    x: Math.round(x + COMPACT_W / 2),
-    y: Math.round(y + COMPACT_H / 2),
+    x: Math.round(x + JAR_COMPACT_W / 2),
+    y: Math.round(y + JAR_COMPACT_H / 2),
   });
   const wa = display.workArea;
-  x = Math.min(Math.max(x, wa.x - COMPACT_W + 90), wa.x + wa.width - 90);
+  x = Math.min(Math.max(x, wa.x - JAR_COMPACT_W + 90), wa.x + wa.width - 90);
   y = Math.min(Math.max(y, wa.y), wa.y + wa.height - 50);
   return { x: Math.round(x), y: Math.round(y) };
+}
+
+/** The jar's size for its remembered top-left home (expanded grows leftward). */
+function windowBounds(home, mode, isExpanded) {
+  if (mode === 'shelf') {
+    const anchor = win && !win.isDestroyed() ? win.getBounds() : null;
+    const display = anchor
+      ? screen.getDisplayMatching(anchor)
+      : screen.getDisplayNearestPoint({ x: home.x, y: home.y });
+    const work = display.workArea;
+    const height = Math.min(
+      isExpanded ? SHELF_EXPANDED_H : SHELF_H,
+      work.height,
+    );
+    return {
+      x: work.x,
+      y: work.y + work.height - height,
+      width: work.width,
+      height,
+    };
+  }
+
+  const display = screen.getDisplayNearestPoint({ x: home.x, y: home.y });
+  const work = display.workArea;
+  const width = isExpanded ? JAR_EXPANDED_W : JAR_COMPACT_W;
+  const height = isExpanded ? JAR_EXPANDED_H : JAR_COMPACT_H;
+  const x = isExpanded ? home.x - (JAR_EXPANDED_W - JAR_COMPACT_W) : home.x;
+  return {
+    x: Math.round(Math.min(Math.max(x, work.x + 4), work.x + work.width - width - 4)),
+    y: Math.round(
+      Math.min(Math.max(home.y, work.y + 4), work.y + work.height - height - 4),
+    ),
+    width,
+    height,
+  };
+}
+
+function applyLayout() {
+  if (!win || win.isDestroyed()) return;
+  const home = initialPosition();
+  const shape = windowBounds(home, displayMode, expanded);
+  win.setBounds(shape, false);
+}
+
+function applyMouseMode() {
+  if (!win || win.isDestroyed()) return;
+  const ignore = Boolean(shellState.ghost) || (displayMode === 'shelf' && passthrough);
+  if (IS_WIN || IS_MAC) {
+    win.setIgnoreMouseEvents(ignore, { forward: true });
+  } else {
+    win.setIgnoreMouseEvents(ignore);
+  }
+}
+
+function readDisplayMode() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    return raw?.settings?.display === 'shelf' ? 'shelf' : 'jar';
+  } catch {
+    return 'jar';
+  }
 }
 
 function scheduleRememberPosition() {
@@ -224,10 +291,10 @@ function scheduleRememberPosition() {
 }
 
 function rememberPosition() {
-  if (!win || win.isDestroyed()) return;
+  if (!win || win.isDestroyed() || displayMode === 'shelf') return;
   const bounds = win.getBounds();
-  const homeX = expanded ? bounds.x + bounds.width - COMPACT_W : bounds.x;
-  const homeY = expanded ? bounds.y + bounds.height - COMPACT_H : bounds.y;
+  const homeX = expanded ? bounds.x + bounds.width - JAR_COMPACT_W : bounds.x;
+  const homeY = expanded ? bounds.y + bounds.height - JAR_COMPACT_H : bounds.y;
   if (shellState.x === homeX && shellState.y === homeY) return;
   shellState.x = homeX;
   shellState.y = homeY;
@@ -280,15 +347,24 @@ function rebuildTray() {
     },
     { type: 'separator' },
     {
-      label: 'Mist the jar',
+      label: 'Mist the garden',
       click: () => sendCommand('mist'),
     },
     {
-      label: 'Portrait',
+      label: 'Window',
       submenu: [
-        { label: 'Set desktop wallpaper', click: () => sendCommand('snapshot-desktop') },
-        { label: 'Set lock screen image', click: () => sendCommand('snapshot-lock') },
-        { label: 'Update both', click: () => sendCommand('snapshot-both') },
+        {
+          label: 'Floating jar',
+          type: 'radio',
+          checked: displayMode === 'jar',
+          click: () => sendCommand('display-jar'),
+        },
+        {
+          label: 'Shelf above the taskbar',
+          type: 'radio',
+          checked: displayMode === 'shelf',
+          click: () => sendCommand('display-shelf'),
+        },
       ],
     },
     {
@@ -360,20 +436,26 @@ function setExpanded(value) {
   if (!win || win.isDestroyed()) return;
   const next = Boolean(value);
   if (next === expanded) return;
-  const current = win.getBounds();
-  const display = screen.getDisplayMatching(current);
-  const work = display.workArea;
-  const width = next ? EXPANDED_W : COMPACT_W;
-  const height = COMPACT_H;
-  const right = current.x + current.width;
-  const bottom = current.y + current.height;
-  let x = Math.round(right - width);
-  let y = Math.round(bottom - height);
-  x = Math.min(Math.max(x, work.x + 4), work.x + work.width - width - 4);
-  y = Math.min(Math.max(y, work.y + 4), work.y + work.height - height - 4);
   expanded = next;
-  win.setBounds({ x, y, width, height }, false);
+  applyLayout();
   scheduleRememberPosition();
+}
+
+function setDisplayMode(mode) {
+  if (!win || win.isDestroyed()) return displayMode;
+  const next = mode === 'shelf' ? 'shelf' : 'jar';
+  if (next === displayMode) {
+    applyLayout();
+    return displayMode;
+  }
+  rememberPosition();
+  displayMode = next;
+  passthrough = displayMode === 'shelf';
+  win.setMovable(displayMode === 'jar');
+  applyLayout();
+  applyMouseMode();
+  rebuildTray();
+  return displayMode;
 }
 
 function setAlwaysOnTop(value) {
@@ -388,18 +470,17 @@ function setAlwaysOnTop(value) {
 
 function setGhost(value) {
   shellState.ghost = Boolean(value);
-  if (win && !win.isDestroyed()) {
-    if (IS_WIN || IS_MAC) {
-      win.setIgnoreMouseEvents(Boolean(value), { forward: true });
-    } else {
-      win.setIgnoreMouseEvents(Boolean(value));
-    }
-  }
+  applyMouseMode();
   rebuildTray();
   if (value) {
     notify('Ghost mode is on', 'Use Ctrl+Alt+T or the tray menu to make the jar clickable again.');
   }
   return Boolean(value);
+}
+
+function setPassthrough(value) {
+  passthrough = Boolean(value);
+  applyMouseMode();
 }
 
 async function setLaunchAtLogin(value) {
@@ -436,6 +517,9 @@ function registerShortcuts() {
     globalShortcut.register('CommandOrControl+Alt+M', () => {
       if (win && !win.isDestroyed() && win.isVisible()) hideWindow();
       else showWindow();
+    });
+    globalShortcut.register('CommandOrControl+Alt+S', () => {
+      sendCommand(displayMode === 'shelf' ? 'display-jar' : 'display-shelf');
     });
   } catch {
     // Shortcuts are optional.
@@ -514,6 +598,14 @@ function setupIpc() {
     setExpanded(value);
   });
 
+  ipcMain.handle('window:set-display-mode', (_event, mode) => {
+    return setDisplayMode(mode);
+  });
+
+  ipcMain.handle('window:set-passthrough', (_event, value) => {
+    setPassthrough(value);
+  });
+
   ipcMain.handle('window:set-always-on-top', (_event, value) => {
     return setAlwaysOnTop(value);
   });
@@ -534,16 +626,6 @@ function setupIpc() {
     showWindow();
   });
 
-  ipcMain.handle('display:get', () => {
-    const display = screen.getPrimaryDisplay();
-    return {
-      width: display.size.width,
-      height: display.size.height,
-      scaleFactor: display.scaleFactor,
-      workArea: display.workArea,
-    };
-  });
-
   ipcMain.handle('app:set-launch-at-login', async (_event, value) => {
     return setLaunchAtLogin(value);
   });
@@ -552,30 +634,8 @@ function setupIpc() {
     return getLaunchAtLogin();
   });
 
-  ipcMain.handle('snapshot:apply', async (_event, dataUrl, target) => {
-    try {
-      return await applySnapshot(dataUrl, target);
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle('snapshot:restore', async () => {
-    try {
-      return await restoreWallpaper();
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
   ipcMain.handle('data:open-folder', async () => {
     await electronShell.openPath(userDataPath);
-  });
-
-  ipcMain.handle('system:open-lock-settings', async () => {
-    if (IS_WIN) {
-      await electronShell.openExternal('ms-settings:lockscreen').catch(() => {});
-    }
   });
 
   ipcMain.handle('app:notify', (_event, title, body) => {
@@ -604,238 +664,6 @@ function notify(title, body) {
 }
 
 /* ------------------------------------------------------------------ */
-/* portraits, wallpapers and the lock screen                           */
-/* ------------------------------------------------------------------ */
-
-function decodePng(dataUrl) {
-  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,')) {
-    throw new Error('snapshot is not a PNG');
-  }
-  const buffer = Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64');
-  if (buffer.length < 200) throw new Error('snapshot is empty');
-  if (buffer.length > 80 * 1024 * 1024) throw new Error('snapshot is too large');
-  return buffer;
-}
-
-async function applySnapshot(dataUrl, target) {
-  const mode = target === 'desktop' || target === 'lock' || target === 'both' ? target : 'desktop';
-  const buffer = decodePng(dataUrl);
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const file = path.join(wallpapersPath, `mosslight-${stamp}.png`);
-  await fsp.writeFile(file, buffer);
-  void prunePortraits(file);
-
-  if (mode === 'desktop' || mode === 'both') {
-    await backupWallpaper();
-  }
-
-  let desktopOk = true;
-  let lockOk = true;
-  let lockPath;
-  const errors = [];
-
-  if (mode === 'desktop' || mode === 'both') {
-    try {
-      await setDesktopWallpaper(file);
-    } catch (error) {
-      desktopOk = false;
-      errors.push(`desktop: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  if (mode === 'lock' || mode === 'both') {
-    try {
-      lockPath = await setLockScreen(file);
-    } catch (error) {
-      lockOk = false;
-      errors.push(`lock screen: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  const needsManualLockScreen = (mode === 'lock' || mode === 'both') && !lockOk;
-  const ok = mode === 'both' ? desktopOk : mode === 'desktop' ? desktopOk : lockOk;
-  return {
-    ok,
-    path: file,
-    lockPath,
-    needsManualLockScreen,
-    error: ok ? undefined : errors.join(' · '),
-  };
-}
-
-async function prunePortraits(keepFile) {
-  try {
-    const entries = await fsp.readdir(wallpapersPath, { withFileTypes: true });
-    const files = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.png')) continue;
-      const full = path.join(wallpapersPath, entry.name);
-      if (full === keepFile) continue;
-      const stat = await fsp.stat(full);
-      files.push({ full, time: stat.mtimeMs });
-    }
-    files.sort((a, b) => b.time - a.time);
-    for (const file of files.slice(5)) {
-      await fsp.rm(file.full, { force: true }).catch(() => {});
-    }
-  } catch {
-    // cleaning is best-effort
-  }
-}
-
-async function backupWallpaper() {
-  if (shellState.previousWallpaper) return;
-  if (!IS_WIN) return;
-  const current = await readWindowsWallpaper();
-  if (!current) return;
-  try {
-    const exists = await fsp.stat(current);
-    if (!exists.isFile()) return;
-    const ext = path.extname(current) || '.png';
-    const backup = path.join(wallpapersPath, `original-wallpaper${ext}`);
-    await fsp.copyFile(current, backup);
-    shellState.previousWallpaper = backup;
-    saveShellSoon();
-  } catch {
-    // If the current wallpaper is a virtual/spotlight file, there is nothing safe to copy.
-  }
-}
-
-async function readWindowsWallpaper() {
-  if (!IS_WIN) return null;
-  try {
-    const { stdout } = await execFileAsync(
-      'reg',
-      ['query', 'HKCU\\Control Panel\\Desktop', '/v', 'WallPaper'],
-      { windowsHide: true, timeout: 10_000 },
-    );
-    const match = stdout.match(/WallPaper\s+REG_(?:SZ|EXPAND_SZ)\s+(.+?)\s*$/m);
-    const value = match ? match[1].trim() : '';
-    if (!value) return null;
-    if (value.toLowerCase().includes('transcodedwallpaper')) {
-      return value;
-    }
-    return value;
-  } catch {
-    return null;
-  }
-}
-
-async function runPowerShell(script, args) {
-  const scriptPath = path.join(
-    os.tmpdir(),
-    `mosslight-${Date.now()}-${Math.random().toString(36).slice(2)}.ps1`,
-  );
-  await fsp.writeFile(scriptPath, script, 'utf8');
-  try {
-    const { stdout } = await execFileAsync(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        scriptPath,
-        ...args,
-      ],
-      { windowsHide: true, timeout: 45_000, maxBuffer: 1024 * 1024 },
-    );
-    return stdout;
-  } finally {
-    await fsp.rm(scriptPath, { force: true }).catch(() => {});
-  }
-}
-
-const PS_SET_WALLPAPER = String.raw`
-param([string]$ImagePath)
-$ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @"
-using System.Runtime.InteropServices;
-public static class MosslightWallpaper {
-  [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-  public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-}
-"@
-$result = [MosslightWallpaper]::SystemParametersInfo(20, 0, $ImagePath, 3)
-if ($result -eq 0) { throw "Windows refused the wallpaper change." }
-Write-Output 'OK'
-`;
-
-const PS_SET_LOCK_SCREEN = String.raw`
-param([string]$ImagePath)
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -like 'IAsyncOperation*' })[0]
-function Await($WinRtTask, $ResultType) {
-  $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
-  $netTask = $asTask.Invoke($null, @($WinRtTask))
-  $netTask.Wait(-1) | Out-Null
-  $netTask.Result
-}
-$asTaskAction = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncAction' })[0]
-function AwaitAction($WinRtAction) {
-  $netTask = $asTaskAction.Invoke($null, @($WinRtAction))
-  $netTask.Wait(-1) | Out-Null
-}
-[Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime] | Out-Null
-[Windows.System.UserProfile.LockScreen,Windows.System.UserProfile,ContentType=WindowsRuntime] | Out-Null
-$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($ImagePath)) ([Windows.Storage.StorageFile])
-AwaitAction ([Windows.System.UserProfile.LockScreen]::SetImageFileAsync($file))
-Write-Output 'OK'
-`;
-
-async function setDesktopWallpaper(file) {
-  if (IS_WIN) {
-    await runPowerShell(PS_SET_WALLPAPER, ['-ImagePath', file]);
-    return;
-  }
-  if (IS_MAC) {
-    await execFileAsync(
-      'osascript',
-      ['-e', `tell application "System Events" to set picture of every desktop to POSIX file "${file.replace(/"/g, '\\"')}"`],
-      { timeout: 20_000 },
-    );
-    return;
-  }
-  const uri = `file://${file}`;
-  try {
-    await execFileAsync('gsettings', ['set', 'org.gnome.desktop.background', 'picture-uri', uri]);
-    await execFileAsync('gsettings', ['set', 'org.gnome.desktop.background', 'picture-uri-dark', uri]);
-  } catch {
-    throw new Error('setting the wallpaper on this desktop is not supported yet');
-  }
-}
-
-async function setLockScreen(file) {
-  if (IS_WIN) {
-    // Windows only lets an app nominate the lock screen picture; it may still
-    // ask the user to confirm. Keep a friendly, findable copy either way.
-    const folder = path.join(app.getPath('pictures'), 'Mosslight');
-    const target = path.join(folder, 'lock-screen.png');
-    await fsp.mkdir(folder, { recursive: true });
-    await fsp.copyFile(file, target);
-    await runPowerShell(PS_SET_LOCK_SCREEN, ['-ImagePath', target]);
-    return target;
-  }
-  throw new Error('setting the lock screen is only implemented on Windows');
-}
-
-async function restoreWallpaper() {
-  if (!shellState.previousWallpaper) {
-    return { ok: false, error: 'there is no saved wallpaper to restore' };
-  }
-  try {
-    await setDesktopWallpaper(shellState.previousWallpaper);
-    shellState.previousWallpaper = null;
-    saveShellSoon();
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-/* ------------------------------------------------------------------ */
 /* screenshots for development                                         */
 /* ------------------------------------------------------------------ */
 
@@ -846,53 +674,57 @@ function wait(ms) {
 async function runScreenshots() {
   const outDir = process.env.MOSS_SHOT_DIR || path.join(os.tmpdir(), 'mosslight-shots');
   await fsp.mkdir(outDir, { recursive: true });
-  win.setBounds({ x: 40, y: 40, width: EXPANDED_W, height: EXPANDED_H });
   win.showInactive();
   await wait(2800);
   await win.webContents.executeJavaScript(
     "document.body.classList.add('is-web'); void 0;",
   );
   await wait(500);
-  const expandedShot = await win.webContents.capturePage();
-  await fsp.writeFile(path.join(outDir, 'expanded.png'), expandedShot.toPNG());
+
+  const shoot = async (name) => {
+    const image = await win.webContents.capturePage();
+    await fsp.writeFile(path.join(outDir, name), image.toPNG());
+  };
+
+  await shoot('expanded.png');
 
   await win.webContents.executeJavaScript(
     "document.querySelector('.close-button')?.click(); void 0;",
   );
-  win.setBounds({ x: 40, y: 40, width: COMPACT_W, height: COMPACT_H });
   await wait(800);
-  const compactShot = await win.webContents.capturePage();
-  await fsp.writeFile(path.join(outDir, 'compact.png'), compactShot.toPNG());
+  await shoot('compact.png');
 
   await win.webContents.executeJavaScript(
     "document.querySelector('.status-pill')?.click(); void 0;",
   );
-  win.setBounds({ x: 40, y: 40, width: EXPANDED_W, height: EXPANDED_H });
   await wait(700);
   await win.webContents.executeJavaScript(
     "Array.from(document.querySelectorAll('.tabs button')).find((button) => button.textContent.includes('garden'))?.click(); void 0;",
   );
   await wait(700);
-  const gardenShot = await win.webContents.capturePage();
-  await fsp.writeFile(path.join(outDir, 'garden.png'), gardenShot.toPNG());
+  await shoot('garden.png');
 
   await win.webContents.executeJavaScript(
     "Array.from(document.querySelectorAll('.tabs button')).find((button) => button.textContent.includes('settings'))?.click(); void 0;",
   );
   await wait(500);
-  const settingsShot = await win.webContents.capturePage();
-  await fsp.writeFile(path.join(outDir, 'settings.png'), settingsShot.toPNG());
+  await shoot('settings.png');
 
-  await wait(300);
-  const portrait = await win.webContents.executeJavaScript(
-    "window.__mosslightPortrait ? window.__mosslightPortrait(1920, 1080) : null",
+  await win.webContents.executeJavaScript(
+    "document.querySelector('[data-display-mode=\"shelf\"]')?.click(); void 0;",
   );
-  if (typeof portrait === 'string' && portrait.startsWith('data:image/png;base64,')) {
-    await fsp.writeFile(
-      path.join(outDir, 'portrait.png'),
-      Buffer.from(portrait.slice('data:image/png;base64,'.length), 'base64'),
-    );
-  }
+  await wait(900);
+  await win.webContents.executeJavaScript(
+    "Array.from(document.querySelectorAll('.tabs button')).find((button) => button.textContent.includes('today'))?.click(); void 0;",
+  );
+  await wait(3800);
+  await shoot('shelf-notes.png');
+
+  await win.webContents.executeJavaScript(
+    "document.querySelector('.close-button')?.click(); void 0;",
+  );
+  await wait(900);
+  await shoot('shelf.png');
 
   console.log(`[mosslight] screenshots written to ${outDir}`);
   if (lastCommand) console.log(`[mosslight] last command: ${lastCommand}`);

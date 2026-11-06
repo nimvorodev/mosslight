@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('mosslight', {
   saveState: (json) => ipcRenderer.invoke('state:save', json),
 
   setExpanded: (expanded) => ipcRenderer.invoke('window:set-expanded', Boolean(expanded)),
+  setDisplayMode: (mode) => ipcRenderer.invoke('window:set-display-mode', mode),
+  setPassthrough: (value) => ipcRenderer.invoke('window:set-passthrough', Boolean(value)),
   setAlwaysOnTop: (value) => ipcRenderer.invoke('window:set-always-on-top', Boolean(value)),
   setClickThrough: (value) => ipcRenderer.invoke('window:set-click-through', Boolean(value)),
   setGhostMode: (value) => ipcRenderer.invoke('window:set-ghost', Boolean(value)),
@@ -51,14 +53,8 @@ contextBridge.exposeInMainWorld('mosslight', {
 
   hideWindow: () => ipcRenderer.invoke('window:hide'),
   showWindow: () => ipcRenderer.invoke('window:show'),
-  getDisplay: () => ipcRenderer.invoke('display:get'),
-
-  applySnapshot: (dataUrl, target) =>
-    ipcRenderer.invoke('snapshot:apply', dataUrl, target),
-  restoreWallpaper: () => ipcRenderer.invoke('snapshot:restore'),
 
   openDataFolder: () => ipcRenderer.invoke('data:open-folder'),
-  openLockScreenSettings: () => ipcRenderer.invoke('system:open-lock-settings'),
   notify: (title, body) => ipcRenderer.invoke('app:notify', title, body),
   quit: () => ipcRenderer.invoke('app:quit'),
 

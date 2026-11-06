@@ -8,7 +8,8 @@ export type SpeciesId =
 
 export type CreatureId = 'snail' | 'ladybug' | 'firefly' | 'frog';
 
-export type SnapshotMode = 'off' | 'desktop' | 'lock' | 'both';
+/** How Mosslight lives on the desktop: a floating jar or a full-width shelf. */
+export type DisplayMode = 'jar' | 'shelf';
 
 export interface Plant {
   id: string;
@@ -36,11 +37,9 @@ export interface Task {
 }
 
 export interface Settings {
+  display: DisplayMode;
   alwaysOnTop: boolean;
   launchAtLogin: boolean;
-  snapshots: SnapshotMode;
-  snapshotMinutes: number;
-  lastSnapshotAt: number;
   paused: boolean;
   reducedMotion: boolean;
   atmosphere: boolean;
@@ -103,27 +102,11 @@ export type ShellCommand =
   | 'open-tasks'
   | 'toggle-tasks'
   | 'mist'
-  | 'snapshot-desktop'
-  | 'snapshot-lock'
-  | 'snapshot-both'
+  | 'display-jar'
+  | 'display-shelf'
   | 'toggle-pause'
   | 'welcome'
   | 'focus-window';
-
-export interface SnapshotResult {
-  ok: boolean;
-  error?: string;
-  path?: string;
-  lockPath?: string;
-  needsManualLockScreen?: boolean;
-}
-
-export interface DisplayInfo {
-  width: number;
-  height: number;
-  scaleFactor: number;
-  workArea: { x: number; y: number; width: number; height: number };
-}
 
 export interface MosslightBridge {
   isDesktop: true;
@@ -132,20 +115,15 @@ export interface MosslightBridge {
   loadState: () => Promise<string | null>;
   saveState: (json: string) => Promise<void>;
   setExpanded: (expanded: boolean) => Promise<void>;
+  setDisplayMode: (mode: DisplayMode) => Promise<void>;
+  setPassthrough: (value: boolean) => Promise<void>;
   setAlwaysOnTop: (value: boolean) => Promise<void>;
   setClickThrough: (value: boolean) => Promise<boolean>;
   setLaunchAtLogin: (value: boolean) => Promise<boolean>;
   getLaunchAtLogin: () => Promise<boolean>;
   hideWindow: () => Promise<void>;
   showWindow: () => Promise<void>;
-  getDisplay: () => Promise<DisplayInfo>;
-  applySnapshot: (
-    dataUrl: string,
-    target: 'desktop' | 'lock' | 'both',
-  ) => Promise<SnapshotResult>;
-  restoreWallpaper: () => Promise<SnapshotResult>;
   openDataFolder: () => Promise<void>;
-  openLockScreenSettings: () => Promise<void>;
   notify: (title: string, body: string) => Promise<void>;
   onPresence: (callback: (tick: PresenceTick) => void) => () => void;
   onCommand: (callback: (command: ShellCommand) => void) => () => void;
@@ -160,20 +138,15 @@ export interface WebBridge {
   loadState: () => Promise<string | null>;
   saveState: (json: string) => Promise<void>;
   setExpanded: (expanded: boolean) => Promise<void>;
+  setDisplayMode: (mode: DisplayMode) => Promise<void>;
+  setPassthrough: (value: boolean) => Promise<void>;
   setAlwaysOnTop: (value: boolean) => Promise<void>;
   setClickThrough: (value: boolean) => Promise<boolean>;
   setLaunchAtLogin: (value: boolean) => Promise<boolean>;
   getLaunchAtLogin: () => Promise<boolean>;
   hideWindow: () => Promise<void>;
   showWindow: () => Promise<void>;
-  getDisplay: () => Promise<DisplayInfo>;
-  applySnapshot: (
-    dataUrl: string,
-    target: 'desktop' | 'lock' | 'both',
-  ) => Promise<SnapshotResult>;
-  restoreWallpaper: () => Promise<SnapshotResult>;
   openDataFolder: () => Promise<void>;
-  openLockScreenSettings: () => Promise<void>;
   notify: (title: string, body: string) => Promise<void>;
   onPresence: (callback: (tick: PresenceTick) => void) => () => void;
   onCommand: (callback: (command: ShellCommand) => void) => () => void;

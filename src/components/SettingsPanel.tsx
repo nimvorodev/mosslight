@@ -1,37 +1,12 @@
-import {
-  Camera,
-  FolderOpen,
-  Ghost,
-  Info,
-  LogOut,
-  Monitor,
-  RotateCcw,
-  Smartphone,
-} from 'lucide-react';
+import { FolderOpen, Ghost, Info, LogOut, Monitor } from 'lucide-react';
 import { bridge, isDesktop } from '../lib/bridge';
-import type { SnapshotMode } from '../lib/types';
 import type { TerrariumState } from '../lib/types';
 import type { TerrariumActions } from '../lib/useTerrarium';
 
 interface Props {
   state: TerrariumState;
   actions: TerrariumActions;
-  snapshotBusy: boolean;
 }
-
-const MODES: { id: SnapshotMode; label: string }[] = [
-  { id: 'off', label: 'off' },
-  { id: 'desktop', label: 'desktop' },
-  { id: 'lock', label: 'lock' },
-  { id: 'both', label: 'both' },
-];
-
-const INTERVALS = [
-  { value: 30, label: 'every 30 min' },
-  { value: 60, label: 'every hour' },
-  { value: 180, label: 'every 3 hours' },
-  { value: 360, label: 'every 6 hours' },
-];
 
 function Toggle({
   label,
@@ -67,24 +42,76 @@ function Toggle({
   );
 }
 
-export function SettingsPanel({ state, actions, snapshotBusy }: Props) {
+export function SettingsPanel({ state, actions }: Props) {
   const settings = state.settings;
-  const lastUpdate = settings.lastSnapshotAt
-    ? new Date(settings.lastSnapshotAt).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : 'never';
 
   return (
     <div className="panel settings-panel">
+      <section className="settings-section">
+        <div className="section-head">
+          <h3>
+            <Monitor size={12} /> where it lives
+          </h3>
+        </div>
+        <p className="settings-copy">
+          Mosslight is always the living scene. Choose whether it floats as a
+          jar or stretches into a garden shelf above the taskbar.
+        </p>
+        <div
+          className="display-choices"
+          role="radiogroup"
+          aria-label="Where Mosslight lives"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settings.display === 'jar'}
+            data-display-mode="jar"
+            className={`display-choice ${settings.display === 'jar' ? 'is-active' : ''}`}
+            onClick={() => actions.updateSettings({ display: 'jar' })}
+          >
+            <span className="display-preview is-jar" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="display-choice-copy">
+              <span className="display-choice-title">floating jar</span>
+              <span className="display-choice-note">small · drag it anywhere</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settings.display === 'shelf'}
+            data-display-mode="shelf"
+            className={`display-choice ${settings.display === 'shelf' ? 'is-active' : ''}`}
+            onClick={() => actions.updateSettings({ display: 'shelf' })}
+          >
+            <span className="display-preview is-shelf" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="display-choice-copy">
+              <span className="display-choice-title">window shelf</span>
+              <span className="display-choice-note">full width · above the taskbar</span>
+            </span>
+          </button>
+        </div>
+        <p className="settings-hint">
+          The shelf stays live and lets clicks pass through, except on its controls
+          and open field notes. Ctrl+Alt+S switches shapes.
+        </p>
+      </section>
+
       <section className="settings-section">
         <div className="section-head">
           <h3>the window</h3>
         </div>
         <Toggle
           label="stay on top"
-          description="keep the jar above other windows"
+          description="keep the garden above other windows"
           checked={settings.alwaysOnTop}
           onChange={(value) => actions.updateSettings({ alwaysOnTop: value })}
         />
@@ -112,7 +139,7 @@ export function SettingsPanel({ state, actions, snapshotBusy }: Props) {
         </div>
         <Toggle
           label="pause growth"
-          description="keep the jar still without closing it"
+          description="keep the garden still without closing it"
           checked={settings.paused}
           onChange={(value) => actions.updateSettings({ paused: value })}
         />
@@ -133,87 +160,13 @@ export function SettingsPanel({ state, actions, snapshotBusy }: Props) {
       <section className="settings-section">
         <div className="section-head">
           <h3>
-            <Camera size={12} /> portrait
-          </h3>
-          <span className="counter">{lastUpdate}</span>
-        </div>
-        <p className="settings-copy">
-          Render the living vivarium as a still image and set it as your wallpaper
-          or lock screen. This is how the jar can be seen while the PC is locked.
-        </p>
-        <div className="segmented snapshot-modes" role="group" aria-label="Snapshot target">
-          {MODES.map((mode) => (
-            <button
-              key={mode.id}
-              type="button"
-              className={settings.snapshots === mode.id ? 'is-active' : ''}
-              aria-pressed={settings.snapshots === mode.id}
-              onClick={() => actions.setSnapshotMode(mode.id)}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
-        <div className="snapshot-controls">
-          <label className="select-wrap">
-            <span className="sr-only">Snapshot interval</span>
-            <select
-              value={settings.snapshotMinutes}
-              onChange={(event) => actions.setSnapshotMinutes(Number(event.target.value))}
-              disabled={settings.snapshots === 'off'}
-            >
-              {INTERVALS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="setting-action is-primary"
-            onClick={() => actions.takeSnapshot()}
-            disabled={snapshotBusy}
-          >
-            <Monitor size={12} />
-            {snapshotBusy ? 'rendering…' : 'update now'}
-          </button>
-        </div>
-        {settings.snapshots === 'lock' || settings.snapshots === 'both' ? (
-          <div className="settings-note">
-            <Smartphone size={11} />
-            <div>
-              <p>
-                Windows blocks live apps on the lock screen. Mosslight renders a still
-                portrait and keeps a copy in Pictures\Mosslight. If Windows asks, choose
-                that file once under Personalisation → Lock screen.
-              </p>
-              <button
-                type="button"
-                className="text-button note-action"
-                onClick={actions.openLockScreenSettings}
-              >
-                open Windows lock screen settings
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {isDesktop ? (
-          <button type="button" className="text-button" onClick={actions.restoreWallpaper}>
-            <RotateCcw size={11} /> restore my previous wallpaper
-          </button>
-        ) : null}
-      </section>
-
-      <section className="settings-section">
-        <div className="section-head">
-          <h3>
             <Info size={12} /> the small print
           </h3>
         </div>
         <p className="settings-copy">
-          Everything lives on this machine. No account, no telemetry, no network calls.
-          The jar only knows how long the PC has been awake and which tasks you finish here.
+          Windows has no live surface on the lock screen, so Mosslight does not
+          pretend to be a wallpaper. Everything it draws is the real, growing
+          window. No account, no telemetry, no network calls.
         </p>
         <div className="settings-actions">
           <button type="button" className="setting-action" onClick={actions.openDataFolder}>

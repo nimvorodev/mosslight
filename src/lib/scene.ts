@@ -1,5 +1,6 @@
 import type { TerrariumState } from './types';
 import { JAR, PLANT_SLOTS, SCENE_H, SCENE_W } from './layout';
+import type { PlantSlot } from './layout';
 import { P, SKY_KEYS } from './palette';
 import {
   bandedGradient,
@@ -35,9 +36,6 @@ export interface SceneOptions {
 }
 
 export const EMPTY_EFFECTS: SceneEffects = { mistAt: 0, taskAt: 0, unlockAt: 0 };
-
-export const WALLPAPER_W = 480;
-export const WALLPAPER_H = 270;
 
 export interface SkyState {
   top: string;
@@ -230,7 +228,7 @@ function drawSoil(
   horizon: number,
 ): { backSoil: number; frontSoil: number } {
   const backSoil = y + h * horizon;
-  // Keep the visible soil face proportional on both the jar and the wide portrait.
+  // Keep the visible soil face proportional on both the jar and the wide shelf.
   const frontSoil = y + h * (horizon + (1 - horizon) * 0.56);
   const bottom = y + h;
   const cell = 1;
@@ -621,6 +619,7 @@ function drawWorld(
   detail: number,
   opts: SceneOptions,
   horizon: number,
+  slots: PlantSlot[] = PLANT_SLOTS,
 ): void {
   const sky = drawSky(ctx, x, y, w, h, now, detail, horizon);
   drawSoil(ctx, x, y, w, h, detail, horizon);
@@ -628,7 +627,7 @@ function drawWorld(
 
   const scaleBase = detail;
   const plants = state.plants
-    .map((plant) => ({ plant, slot: PLANT_SLOTS[plant.slot] }))
+    .map((plant) => ({ plant, slot: slots[plant.slot] }))
     .filter((entry) => Boolean(entry.slot))
     .sort((a, b) => a.slot.z - b.slot.z || a.slot.y - b.slot.y);
 
@@ -794,152 +793,212 @@ export function drawJar(
   drawWoodBase(ctx, jar.x - 6, jar.baseY, jar.w + 12, 7, 1);
 }
 
-export function drawWallpaper(
+/**
+ * The plants keep their slot identity but spread across the shelf, so a garden
+ * started in the jar simply moves into the long windowsill.
+ */
+export const SHELF_SLOTS: PlantSlot[] = [
+  { x: 0.075, y: 0.742, scale: 0.9, z: 0 },
+  { x: 0.195, y: 0.752, scale: 0.84, z: 0 },
+  { x: 0.325, y: 0.738, scale: 0.93, z: 1 },
+  { x: 0.445, y: 0.756, scale: 0.86, z: 1 },
+  { x: 0.565, y: 0.74, scale: 0.95, z: 1 },
+  { x: 0.685, y: 0.754, scale: 0.85, z: 0 },
+  { x: 0.805, y: 0.738, scale: 0.92, z: 0 },
+  { x: 0.92, y: 0.75, scale: 0.84, z: 0 },
+];
+
+/**
+ * A young garden only fills a few jar slots, which all cluster on the left.
+ * On the long shelf, spread the occupied slots evenly so the garden always
+ * feels like it belongs to the whole windowsill.
+ */
+function spreadShelfSlots(plants: TerrariumState['plants']): PlantSlot[] {
+  const used = plants
+    .map((plant) => plant.slot)
+    .filter(
+      (slot, index, all) =>
+        slot >= 0 && slot < SHELF_SLOTS.length && all.indexOf(slot) === index,
+    )
+    .sort((a, b) => a - b);
+  if (used.length < 2) return SHELF_SLOTS;
+
+  const slots = SHELF_SLOTS.map((slot) => ({ ...slot }));
+  const first = SHELF_SLOTS[0].x;
+  const last = SHELF_SLOTS[SHELF_SLOTS.length - 1].x;
+  used.forEach((slotIndex, rank) => {
+    const t = rank / (used.length - 1);
+    slots[slotIndex] = { ...slots[slotIndex], x: first + t * (last - first) };
+  });
+  return slots;
+}
+
+/** Small foreground life so a wide shelf never reads as an empty lawn. */
+function drawShelfDetails(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  detail: number,
+  horizon: number,
+  now: number,
+  opts: SceneOptions,
+): void {
+  const s = Math.max(1, Math.round(detail));
+  const sway = opts.motion ? Math.round(Math.sin(now * 0.0011)) : 0;
+  const count = Math.max(14, Math.round(w / 34));
+
+  for (let index = 0; index < count; index += 1) {
+    const dx = Math.round(x + hash2(index, 2, 131) * w);
+    const dy = Math.round(
+      y + h * (horizon + 0.012 + hash2(index, 7, 131) * 0.185),
+    );
+    const kind = hash2(index, 11, 131);
+
+    if (kind < 0.34) {
+      const blades = 2 + Math.floor(hash2(index, 13, 131) * 3);
+      for (let blade = 0; blade < blades; blade += 1) {
+        const bx = dx + (blade - blades / 2) * s;
+        const bh = (2 + Math.round(hash2(index, blade + 3, 17) * 4)) * s;
+        for (let step = 0; step < bh; step += 1) {
+          px(
+            ctx,
+            bx + Math.round((sway * step) / 7),
+            dy - step,
+            step === bh - 1 ? P.moss.bright : P.moss.dark,
+          );
+        }
+      }
+    } else if (kind < 0.53) {
+      pixelEllipse(ctx, dx, dy, 2 * s, s, P.soil.pebble);
+      px(ctx, dx, dy - s, P.soil.pebbleLight);
+    } else if (kind < 0.66) {
+      rect(ctx, dx, dy - 2 * s, s, 2 * s, P.mushroom.stem);
+      rect(ctx, dx - s, dy - Math.round(2.5 * s), 3 * s, s, P.mushroom.cap);
+      px(ctx, dx, dy - Math.round(2.5 * s), P.mushroom.capLight);
+    } else if (kind < 0.77) {
+      px(ctx, dx, dy - s, P.flower.cream);
+      px(ctx, dx, dy, P.flower.stem);
+    } else if (kind < 0.9) {
+      px(ctx, dx, dy, P.moss.light);
+      px(ctx, dx - s, dy, P.moss.dark);
+      px(ctx, dx + s, dy, P.moss.dark);
+    } else {
+      px(ctx, dx, dy, P.soil.pebble);
+    }
+  }
+}
+
+/** Ivy spilling from the top edge of the glass. */
+function drawShelfVines(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  glassH: number,
+  detail: number,
+  now: number,
+  opts: SceneOptions,
+): void {
+  const count = Math.max(5, Math.round(w / 145));
+  const sway = opts.motion ? Math.sin(now * 0.0007) * 0.7 : 0;
+
+  for (let index = 0; index < count; index += 1) {
+    const baseX =
+      ((index + 0.4) / count) * w + (hash2(index, 3, 171) - 0.5) * 22 * detail;
+    const length = Math.min(
+      glassH - 2,
+      Math.round((7 + hash2(index, 7, 171) * 21) * detail),
+    );
+
+    for (let step = 0; step < length; step += 1) {
+      const vx =
+        baseX +
+        Math.sin(step * 0.17 + index * 1.7 + now * 0.00025) * 1.6 * detail +
+        (sway * step) / Math.max(1, length);
+      px(ctx, Math.round(vx), step, step % 6 === 0 ? P.vine.light : P.vine.stem);
+      if (step > 2 && step % 5 === 0) {
+        const side = step % 10 === 0 ? 1 : -1;
+        px(ctx, Math.round(vx) + side * detail, step, P.vine.leaf);
+        px(ctx, Math.round(vx) + side * 2 * detail, step, P.vine.light);
+      }
+    }
+  }
+}
+
+function drawShelfBase(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  glassH: number,
+  detail: number,
+): void {
+  const baseH = Math.max(4, h - glassH);
+  rect(ctx, 0, glassH, w, baseH, P.wood.dark);
+  hline(ctx, 0, glassH, w, P.wood.highlight);
+  rect(ctx, 0, glassH + 1, w, Math.max(1, Math.round(2 * detail)), P.wood.mid);
+  hline(ctx, 0, glassH + 1, w, P.wood.light);
+
+  const grains = Math.max(6, Math.round(w / (17 * detail)));
+  for (let index = 0; index < grains; index += 1) {
+    const gx = hash2(index, 5, 181) * w;
+    const gy = glassH + (0.32 + hash2(index, 9, 181) * 0.52) * baseH;
+    const gw = (3 + hash2(index, 11, 181) * 9) * detail;
+    rect(ctx, gx, gy, gw, 1, withAlpha(P.wood.highlight, 0.22));
+  }
+
+  hline(ctx, 0, h - 1, w, '#1c130d');
+
+  const text = 'MOSSLIGHT';
+  const plaqueW = pixelTextWidth(text) + Math.round(9 * detail);
+  if (w > plaqueW * 3 && baseH > 10 * detail) {
+    const plaqueX = Math.round((w - plaqueW) / 2);
+    const plaqueY = Math.round(glassH + baseH * 0.3);
+    rect(ctx, plaqueX, plaqueY, plaqueW, 9, P.wood.brassDark);
+    rect(ctx, plaqueX + 1, plaqueY + 1, plaqueW - 2, 7, P.wood.brass);
+    hline(ctx, plaqueX + 2, plaqueY + 2, plaqueW - 4, P.wood.brassLight);
+    pixelText(
+      ctx,
+      text,
+      Math.round(plaqueX + (plaqueW - pixelTextWidth(text)) / 2),
+      plaqueY + 2,
+      P.wood.brassDark,
+    );
+  }
+}
+
+/**
+ * The shelf: a long, low vivarium that sits flush above the taskbar. It is the
+ * same living world as the jar, just widened, so the plants and residents keep
+ * moving instead of becoming a wallpaper.
+ */
+export function drawShelf(
   ctx: CanvasRenderingContext2D,
   state: TerrariumState,
   now: number,
   opts: SceneOptions,
 ): void {
-  ctx.clearRect(0, 0, WALLPAPER_W, WALLPAPER_H);
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  if (w <= 0 || h <= 0) return;
+
+  ctx.clearRect(0, 0, w, h);
   ctx.imageSmoothingEnabled = false;
 
-  bandedGradient(ctx, 0, 0, WALLPAPER_W, WALLPAPER_H, '#0a1411', '#142019', 24);
-  const glow = ctx.createRadialGradient(240, 120, 20, 240, 120, 220);
-  glow.addColorStop(0, 'rgba(116, 150, 102, 0.16)');
-  glow.addColorStop(0.55, 'rgba(70, 100, 78, 0.06)');
-  glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, WALLPAPER_W, WALLPAPER_H);
-
-  for (let index = 0; index < 90; index += 1) {
-    const x = hash2(index, 2, 91) * WALLPAPER_W;
-    const y = hash2(index, 4, 91) * WALLPAPER_H * 0.8;
-    const alpha = 0.02 + hash2(index, 7, 91) * 0.05;
-    px(ctx, x, y, withAlpha('#d9e6c6', alpha));
-  }
-
-  const shelfY = 246;
-  rect(ctx, 0, shelfY, WALLPAPER_W, WALLPAPER_H - shelfY, '#2c2119');
-  hline(ctx, 0, shelfY, WALLPAPER_W, '#5a4030');
-  hline(ctx, 0, shelfY + 1, WALLPAPER_W, '#3c2b1f');
-  for (let index = 0; index < 26; index += 1) {
-    const gx = hash2(index, 8, 93) * WALLPAPER_W;
-    rect(ctx, gx, shelfY + 4 + hash2(index, 9, 93) * 18, 3 + hash2(index, 10, 93) * 10, 1, withAlpha('#8a6246', 0.25));
-  }
-
-  const frame = { x: 26, y: 18, w: 428, h: 222 };
-  const inner = { x: 38, y: 30, w: 404, h: 196 };
-
-  for (let offset = 5; offset >= 1; offset -= 1) {
-    ctx.fillStyle = `rgba(3, 8, 6, ${0.05 * (6 - offset)})`;
-    ctx.fillRect(frame.x + offset, frame.y + offset + 3, frame.w, frame.h);
-  }
+  const detail = clamp(h / 105, 1, 1.8);
+  const radiusTop = Math.round(10 * detail);
+  const glassH = Math.round(h * 0.86);
+  const horizon = 0.62;
 
   ctx.save();
-  jarPath(ctx, frame.x, frame.y, frame.w, frame.h, 5, 5);
-  ctx.fillStyle = P.wood.dark;
-  ctx.fill();
-  jarPath(ctx, frame.x + 3, frame.y + 3, frame.w - 6, frame.h - 6, 4, 4);
-  ctx.fillStyle = P.wood.mid;
-  ctx.fill();
-  jarPath(ctx, frame.x + 7, frame.y + 7, frame.w - 14, frame.h - 14, 3, 3);
-  ctx.fillStyle = P.wood.light;
-  ctx.fill();
-  jarPath(ctx, inner.x, inner.y, inner.w, inner.h, 4, 4);
-  ctx.fillStyle = '#0b120f';
-  ctx.fill();
-  ctx.restore();
-
-  ctx.save();
-  jarPath(ctx, inner.x, inner.y, inner.w, inner.h, 4, 4);
+  jarPath(ctx, 0, 0, w, glassH, radiusTop, 0);
   ctx.clip();
-  drawWorld(ctx, state, now, inner.x, inner.y, inner.w, inner.h, 1.8, opts, 0.55);
-  drawGlass(ctx, inner.x, inner.y, inner.w, inner.h, 4, 4, 1.7);
+  drawWorld(ctx, state, now, 0, 0, w, glassH, detail, opts, horizon, spreadShelfSlots(state.plants));
+  drawShelfDetails(ctx, 0, 0, w, glassH, detail, horizon, now, opts);
+  drawShelfVines(ctx, w, glassH, detail, now, opts);
+  drawGlass(ctx, 0, 0, w, glassH, radiusTop, 0, detail);
   ctx.restore();
 
-  hline(ctx, frame.x, frame.y, frame.w, P.wood.highlight);
-  hline(ctx, frame.x, frame.y + frame.h - 2, frame.w, P.wood.dark);
-  vline(ctx, frame.x, frame.y, frame.h, P.wood.light);
-  vline(ctx, frame.x + frame.w - 2, frame.y, frame.h, P.wood.dark);
-
-  for (let index = 0; index < 12; index += 1) {
-    const gx = frame.x + 6 + hash2(index, 11, 95) * (frame.w - 12);
-    const gy = frame.y + 4 + Math.round(hash2(index, 12, 95) * 3);
-    rect(ctx, gx, gy, 4 + hash2(index, 13, 95) * 12, 1, withAlpha(P.wood.highlight, 0.25));
-  }
-
-  const plaqueW = 49;
-  const plaqueX = Math.round((WALLPAPER_W - plaqueW) / 2);
-  const plaqueY = frame.y + frame.h - 12;
-  rect(ctx, plaqueX, plaqueY, plaqueW, 10, P.wood.brassDark);
-  rect(ctx, plaqueX + 1, plaqueY + 1, plaqueW - 2, 8, P.wood.brass);
-  hline(ctx, plaqueX + 2, plaqueY + 2, plaqueW - 4, P.wood.brassLight);
-  const text = 'MOSSLIGHT';
-  pixelText(
-    ctx,
-    text,
-    Math.round(plaqueX + (plaqueW - pixelTextWidth(text)) / 2),
-    plaqueY + 3,
-    P.wood.brassDark,
-  );
-
-  const baseTop = frame.y + frame.h;
-  rect(ctx, 18, baseTop, WALLPAPER_W - 36, 10, P.wood.dark);
-  rect(ctx, 22, baseTop, WALLPAPER_W - 44, 6, P.wood.mid);
-  rect(ctx, 26, baseTop + 1, WALLPAPER_W - 52, 1, P.wood.light);
-  rect(ctx, 40, baseTop + 10, 14, 4, P.wood.dark);
-  rect(ctx, WALLPAPER_W - 54, baseTop + 10, 14, 4, P.wood.dark);
-  ctx.fillStyle = 'rgba(4, 9, 6, 0.35)';
-  ctx.beginPath();
-  ctx.ellipse(WALLPAPER_W / 2, baseTop + 18, 190, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // A little ivy creeping over the top edge of the frame.
-  for (let index = 0; index < 2; index += 1) {
-    const startX = index === 0 ? frame.x + 6 : frame.x + frame.w - 6;
-    const dir = index === 0 ? 1 : -1;
-    for (let step = 0; step < 30; step += 1) {
-      const vx = startX + dir * step;
-      const vy = frame.y + 2 + Math.round(Math.sin(step * 0.38 + index) * 1.4);
-      px(ctx, vx, vy, step % 6 === 0 ? P.vine.light : P.vine.stem);
-      if (step % 4 === 0) {
-        px(ctx, vx, vy - 2, P.vine.leaf);
-        px(ctx, vx + dir, vy - 3, P.vine.light);
-        px(ctx, vx, vy - 1, P.vine.dark);
-      }
-    }
-  }
-
-  const vignette = ctx.createRadialGradient(240, 130, 120, 240, 130, 340);
-  vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  vignette.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, WALLPAPER_W, WALLPAPER_H);
-}
-
-export function renderPortrait(
-  state: TerrariumState,
-  now: number,
-  width: number,
-  height: number,
-  opts: SceneOptions,
-): string {
-  const source = document.createElement('canvas');
-  source.width = WALLPAPER_W;
-  source.height = WALLPAPER_H;
-  const sourceCtx = source.getContext('2d');
-  if (!sourceCtx) throw new Error('canvas unavailable');
-  sourceCtx.imageSmoothingEnabled = false;
-  drawWallpaper(sourceCtx, state, now, opts);
-
-  const output = document.createElement('canvas');
-  output.width = Math.max(320, Math.round(width));
-  output.height = Math.max(180, Math.round(height));
-  const outputCtx = output.getContext('2d');
-  if (!outputCtx) throw new Error('canvas unavailable');
-  outputCtx.imageSmoothingEnabled = false;
-  outputCtx.drawImage(source, 0, 0, output.width, output.height);
-  return output.toDataURL('image/png');
+  drawShelfBase(ctx, w, h, glassH, detail);
 }
 
 export function sceneTheme(now: number): { night: boolean; light: number } {

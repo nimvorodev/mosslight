@@ -15,7 +15,6 @@ interface Props {
   tab: DrawerTab;
   onTab: (tab: DrawerTab) => void;
   onClose: () => void;
-  snapshotBusy: boolean;
 }
 
 const TABS: { id: DrawerTab; label: string; icon: typeof ListTodo }[] = [
@@ -24,11 +23,11 @@ const TABS: { id: DrawerTab; label: string; icon: typeof ListTodo }[] = [
   { id: 'settings', label: 'settings', icon: SlidersHorizontal },
 ];
 
-export function Drawer({ state, actions, tab, onTab, onClose, snapshotBusy }: Props) {
+export function Drawer({ state, actions, tab, onTab, onClose }: Props) {
   const openTasks = state.tasks.filter((task) => !task.done).length;
 
   return (
-    <aside className="drawer" aria-label="Mosslight field notes">
+    <aside className="drawer" aria-label="Mosslight field notes" data-shelf-interactive>
       <header className="drawer-head">
         <div className="drawer-title-row">
           <span className="drawer-brand">
@@ -85,7 +84,7 @@ export function Drawer({ state, actions, tab, onTab, onClose, snapshotBusy }: Pr
         {tab === 'today' ? <TodayPanel state={state} actions={actions} /> : null}
         {tab === 'garden' ? <GardenPanel state={state} actions={actions} /> : null}
         {tab === 'settings' ? (
-          <SettingsPanel state={state} actions={actions} snapshotBusy={snapshotBusy} />
+          <SettingsPanel state={state} actions={actions} />
         ) : null}
       </div>
     </aside>

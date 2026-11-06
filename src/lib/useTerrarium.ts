@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { bridge, snapshotLabel } from './bridge';
+import { bridge } from './bridge';
 import {
   MIST_COST,
   TASK_DEW,
@@ -22,15 +22,8 @@ import {
   markUnlocksSeen,
 } from './state';
 import { CREATURES, SPECIES } from './species';
-import { EMPTY_EFFECTS, renderPortrait, type SceneEffects } from './scene';
-import type {
-  Plant,
-  Settings,
-  SnapshotMode,
-  SpeciesId,
-  Task,
-  TerrariumState,
-} from './types';
+import { EMPTY_EFFECTS, type SceneEffects } from './scene';
+import type { Plant, Settings, SpeciesId, Task, TerrariumState } from './types';
 
 export type ToastTone = 'good' | 'warn' | 'info';
 
@@ -53,17 +46,12 @@ export interface TerrariumActions {
   plant: (species: SpeciesId) => void;
   mist: () => void;
   updateSettings: (patch: Partial<Settings>) => void;
-  setSnapshotMode: (mode: SnapshotMode) => void;
-  setSnapshotMinutes: (minutes: number) => void;
-  takeSnapshot: (target?: 'desktop' | 'lock' | 'both') => Promise<void>;
-  restoreWallpaper: () => Promise<void>;
   togglePause: () => void;
   toggleGhost: () => void;
   dismissOnboarding: () => void;
   hide: () => void;
   quit: () => void;
   openDataFolder: () => void;
-  openLockScreenSettings: () => void;
   saveNow: () => void;
 }
 
@@ -88,7 +76,6 @@ export function useTerrarium(): {
   awake: boolean;
   effects: SceneEffects;
   toasts: Toast[];
-  snapshotBusy: boolean;
   actions: TerrariumActions;
 } {
   const [state, setState] = useState<TerrariumState | null>(null);
@@ -98,8 +85,6 @@ export function useTerrarium(): {
   const awakeRef = useRef(true);
   const [effects, setEffects] = useState<SceneEffects>(EMPTY_EFFECTS);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [snapshotBusy, setSnapshotBusy] = useState(false);
-  const snapshotBusyRef = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const toastSeq = useRef(0);
   const activeStretch = useRef(0);
@@ -195,6 +180,7 @@ export function useTerrarium(): {
       stateRef.current = next;
       setState(next);
       loadedRef.current = true;
+      void bridge.setDisplayMode(next.settings.display);
       void bridge.setAlwaysOnTop(next.settings.alwaysOnTop);
       void bridge.setLaunchAtLogin(next.settings.launchAtLogin);
     }
@@ -263,68 +249,6 @@ export function useTerrarium(): {
     return () => window.clearInterval(timer);
   }, [commitNext]);
 
-  const runSnapshot = useCallback(
-    async (target: 'desktop' | 'lock' | 'both') => {
-      if (snapshotBusyRef.current) return;
-      const current = stateRef.current;
-      if (!current) return;
-      snapshotBusyRef.current = true;
-      setSnapshotBusy(true);
-      try {
-        const display = await bridge.getDisplay();
-        const width = Math.max(1280, Math.round(display.width * display.scaleFactor));
-        const height = Math.max(720, Math.round(display.height * display.scaleFactor));
-        const dataUrl = renderPortrait(current, Date.now(), width, height, {
-          motion: false,
-          idle: false,
-          atmosphere: current.settings.atmosphere,
-          effects: EMPTY_EFFECTS,
-        });
-        const result = await bridge.applySnapshot(dataUrl, target);
-        if (result.ok) {
-          const latest = stateRef.current ?? current;
-          commitNext(patchSettings(latest, { lastSnapshotAt: Date.now() }), {
-            announce: false,
-          });
-          pushToast(
-            target === 'both'
-              ? 'wallpaper + lock screen updated'
-              : `${snapshotLabel(target)} updated`,
-            'good',
-          );
-          if (result.needsManualLockScreen) {
-            pushToast(
-              'some Windows setups need the lock screen picture set manually',
-              'warn',
-              7000,
-            );
-          }
-        } else {
-          pushToast(result.error ?? 'could not set the portrait', 'warn', 6000);
-        }
-      } catch {
-        pushToast('could not render the portrait', 'warn', 5000);
-      } finally {
-        snapshotBusyRef.current = false;
-        setSnapshotBusy(false);
-      }
-    },
-    [commitNext, pushToast],
-  );
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const current = stateRef.current;
-      if (!current || current.settings.snapshots === 'off') return;
-      const elapsed = Date.now() - current.settings.lastSnapshotAt;
-      if (elapsed < current.settings.snapshotMinutes * 60_000) return;
-      const target =
-        current.settings.snapshots === 'both' ? 'both' : current.settings.snapshots;
-      void runSnapshot(target);
-    }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [runSnapshot]);
-
   useEffect(() => {
     const save = () => {
       if (!stateRef.current || !loadedRef.current) return;
@@ -352,6 +276,15 @@ export function useTerrarium(): {
       commitNext(patchSettings(current, patch), { announce: false, flush: true });
       if (patch.alwaysOnTop !== undefined) {
         void bridge.setAlwaysOnTop(patch.alwaysOnTop);
+      }
+      if (patch.display !== undefined) {
+        void bridge.setDisplayMode(patch.display);
+        pushToast(
+          patch.display === 'shelf'
+            ? 'the shelf is living across the bottom of the screen'
+            : 'the jar is floating again',
+          'info',
+        );
       }
       if (patch.launchAtLogin !== undefined) {
         void bridge.setLaunchAtLogin(patch.launchAtLogin);
@@ -459,26 +392,6 @@ export function useTerrarium(): {
     commitNext(markOnboardingDone(current), { announce: false, flush: true });
   }, [commitNext]);
 
-  const takeSnapshot = useCallback(
-    async (target?: 'desktop' | 'lock' | 'both') => {
-      const current = stateRef.current;
-      if (!current) return;
-      const fallback =
-        current.settings.snapshots === 'off' ? 'desktop' : current.settings.snapshots;
-      await runSnapshot(target ?? (fallback === 'both' ? 'both' : fallback));
-    },
-    [runSnapshot],
-  );
-
-  const restoreWallpaper = useCallback(async () => {
-    const result = await bridge.restoreWallpaper();
-    pushToast(
-      result.ok ? 'original wallpaper restored' : result.error ?? 'could not restore wallpaper',
-      result.ok ? 'good' : 'warn',
-      5000,
-    );
-  }, [pushToast]);
-
   const saveNow = useCallback(() => {
     if (saveTimer.current !== null) {
       window.clearTimeout(saveTimer.current);
@@ -495,7 +408,6 @@ export function useTerrarium(): {
     awake,
     effects,
     toasts,
-    snapshotBusy,
     actions: {
       addTask: addTaskAction,
       completeTask: completeTaskAction,
@@ -503,17 +415,12 @@ export function useTerrarium(): {
       plant: plantAction,
       mist: mistAction,
       updateSettings,
-      setSnapshotMode: (mode) => updateSettings({ snapshots: mode }),
-      setSnapshotMinutes: (minutes) => updateSettings({ snapshotMinutes: minutes }),
-      takeSnapshot,
-      restoreWallpaper,
       togglePause,
       toggleGhost,
       dismissOnboarding,
       hide: () => void bridge.hideWindow(),
       quit: () => void bridge.quit(),
       openDataFolder: () => void bridge.openDataFolder(),
-      openLockScreenSettings: () => void bridge.openLockScreenSettings(),
       saveNow,
     },
   };

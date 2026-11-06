@@ -29,11 +29,9 @@ export const MAX_TASKS = 30;
 export const MAX_PLANTS = PLANT_SLOTS.length;
 
 export const DEFAULT_SETTINGS: Settings = {
+  display: 'jar',
   alwaysOnTop: true,
   launchAtLogin: false,
-  snapshots: 'off',
-  snapshotMinutes: 60,
-  lastSnapshotAt: 0,
   paused: false,
   reducedMotion: false,
   atmosphere: true,
@@ -219,11 +217,7 @@ export function normalizeState(input: unknown, now = Date.now()): TerrariumState
     ...DEFAULT_SETTINGS,
     ...(raw.settings && typeof raw.settings === 'object' ? raw.settings : {}),
   };
-  settings.snapshotMinutes = clamp(
-    Math.round(finite(settings.snapshotMinutes, 60)),
-    5,
-    24 * 60,
-  );
+  settings.display = settings.display === 'shelf' ? 'shelf' : 'jar';
 
   const state: TerrariumState = {
     version: 1,

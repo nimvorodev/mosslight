@@ -1,11 +1,4 @@
-import type {
-  AnyBridge,
-  DisplayInfo,
-  PresenceTick,
-  ShellCommand,
-  SnapshotMode,
-  SnapshotResult,
-} from './types';
+import type { AnyBridge, PresenceTick, ShellCommand } from './types';
 
 const STORAGE_KEY = 'mosslight.state.v1';
 
@@ -52,6 +45,8 @@ const webBridge: AnyBridge = {
     }
   },
   async setExpanded() {},
+  async setDisplayMode() {},
+  async setPassthrough() {},
   async setAlwaysOnTop() {},
   async setClickThrough(value: boolean) {
     return value;
@@ -64,26 +59,7 @@ const webBridge: AnyBridge = {
   },
   async hideWindow() {},
   async showWindow() {},
-  async getDisplay(): Promise<DisplayInfo> {
-    return {
-      width: window.screen.width,
-      height: window.screen.height,
-      scaleFactor: window.devicePixelRatio || 1,
-      workArea: { x: 0, y: 0, width: window.screen.availWidth, height: window.screen.availHeight },
-    };
-  },
-  async applySnapshot(dataUrl: string, target): Promise<SnapshotResult> {
-    const anchor = document.createElement('a');
-    anchor.href = dataUrl;
-    anchor.download = `mosslight-${target === 'both' ? 'wallpaper' : target}.png`;
-    anchor.click();
-    return { ok: true };
-  },
-  async restoreWallpaper() {
-    return { ok: false, error: 'restore is only available in the desktop app' };
-  },
   async openDataFolder() {},
-  async openLockScreenSettings() {},
   async notify(title: string, body: string) {
     if (!('Notification' in window)) return;
     try {
@@ -118,16 +94,3 @@ export const bridge: AnyBridge =
   typeof window !== 'undefined' && window.mosslight ? window.mosslight : webBridge;
 
 export const isDesktop = bridge.isDesktop;
-
-export function snapshotLabel(mode: SnapshotMode): string {
-  switch (mode) {
-    case 'desktop':
-      return 'desktop wallpaper';
-    case 'lock':
-      return 'lock screen';
-    case 'both':
-      return 'wallpaper + lock screen';
-    default:
-      return 'off';
-  }
-}
